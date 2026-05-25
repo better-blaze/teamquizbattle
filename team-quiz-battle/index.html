@@ -204,6 +204,7 @@
     </div>
 
     <button id="client-mute-btn" class="mute-btn" title="음소거">🔊</button>
+    <button id="client-tutorial-btn" class="tutorial-btn" title="게임 방법 보기">❓</button>
   </div>
 
   <!-- ===== 관리자 뷰: 교사용 패널 ===== -->
@@ -244,6 +245,12 @@
           <button id="btn-start-countdown" class="btn btn-primary btn-large">▶ 5초 카운트다운</button>
           <button id="btn-next-question" class="btn btn-secondary btn-large">다음 문제 ▶▶</button>
           <button id="btn-end-game" class="btn btn-danger">게임 끝내기</button>
+        </div>
+
+        <!-- 게임 종료 후 다시하기 배너 (ended 단계에서만 표시) -->
+        <div id="admin-restart-banner" class="admin-restart-banner hidden">
+          <div class="restart-banner-msg">🏆 게임이 종료되었습니다!</div>
+          <button id="btn-restart-game" class="btn btn-green btn-large">🔄 다시하기 (대진표부터)</button>
         </div>
 
         <div id="admin-score-panel" class="admin-score-panel"></div>
@@ -297,6 +304,19 @@
   <div id="ceremony-overlay" class="ceremony-overlay hidden">
     <div id="ceremony-content" class="ceremony-content"></div>
     <button id="ceremony-next" class="btn btn-primary btn-large ceremony-next-btn hidden">다음 ▶</button>
+  </div>
+
+  <!-- 튜토리얼 오버레이 -->
+  <div id="tutorial-overlay" class="tutorial-overlay hidden">
+    <div class="tutorial-card">
+      <button id="tutorial-close" class="tutorial-close">✕</button>
+      <div id="tutorial-slide" class="tutorial-slide"></div>
+      <div class="tutorial-footer">
+        <button id="tutorial-prev" class="tutorial-nav-btn">◀ 이전</button>
+        <div id="tutorial-dots" class="tutorial-dots"></div>
+        <button id="tutorial-next" class="tutorial-nav-btn primary">다음 ▶</button>
+      </div>
+    </div>
   </div>
 
 </div><!-- #app -->

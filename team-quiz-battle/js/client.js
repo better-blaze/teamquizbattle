@@ -602,6 +602,208 @@ export function showCountdownWithItems({ teamNum, score, items, onUseItem }) {
 }
 
 // =============================================
+// =============================================
+// 튜토리얼 슬라이드 데이터
+// =============================================
+const TUTORIAL_SLIDES = [
+  {
+    emoji: '🏆',
+    title: '팀전 퀴즈배틀이란?',
+    color: '#f59e0b',
+    lines: [
+      '모둠이 함께 퀴즈를 풀어서',
+      '점수를 많이 쌓는 팀이 이기는 게임이에요!',
+      '빨리 맞힐수록 점수가 높아집니다.'
+    ]
+  },
+  {
+    emoji: '📋',
+    title: '① 대진표 작성',
+    color: '#3b82f6',
+    lines: [
+      '게임을 시작하기 전, 각 문제마다',
+      '우리 모둠에서 누가 풀지 정해요.',
+      '100초 안에 모두 배정하고 제출하세요!'
+    ]
+  },
+  {
+    emoji: '❓',
+    title: '② 문제 풀기 & 점수',
+    color: '#8b5cf6',
+    lines: [
+      '선생님이 카운트다운을 시작하면 문제가 시작돼요.',
+      '빨리 맞힐수록 점수가 높아요! (최대 10점)',
+      '늦게 맞혀도 최소 3점은 받을 수 있어요.'
+    ]
+  },
+  {
+    emoji: '⚡',
+    title: '③ 아이템 — 1.5배',
+    color: '#f59e0b',
+    lines: [
+      '카운트다운 5초 동안 사용할 수 있어요.',
+      '이번 문제 점수가 1.5배로 올라가요!',
+      '예) 10점 → 15점, 8점 → 12점'
+    ]
+  },
+  {
+    emoji: '💀',
+    title: '③ 아이템 — 저주',
+    color: '#ef4444',
+    lines: [
+      '다른 모둠에게 사용하는 공격 아이템이에요.',
+      '저주를 받은 모둠은 문제 시작이 잠깐 늦어져요.',
+      '그 시간도 점수 계산에 포함되니까 불리해요!'
+    ]
+  },
+  {
+    emoji: '🩹',
+    title: '③ 아이템 — 지우개',
+    color: '#06b6d4',
+    lines: [
+      '카운트다운 중에 사용하는 아이템이에요.',
+      '틀렸을 때 한 번 더 도전할 수 있어요!',
+      '단, 다시 도전할 때 타이머는 처음부터 시작해요.'
+    ]
+  },
+  {
+    emoji: '🛡️',
+    title: '③ 아이템 — 쉴드',
+    color: '#22c55e',
+    lines: [
+      '저주로부터 우리 모둠을 지켜주는 아이템이에요.',
+      '쉴드가 있으면 저주를 한 번 막을 수 있어요!',
+      '막은 뒤에는 쉴드가 사라지니 조심하세요.'
+    ]
+  },
+  {
+    emoji: '🎴',
+    title: '④ 미스터리 문제 (★)',
+    color: '#a855f7',
+    lines: [
+      '문제 목록에 ★ 표시가 있는 문제는 특별해요!',
+      '가장 먼저 맞힌 모둠이 미스터리 카드를 뽑아요.',
+      '카드를 뒤집어 어떤 효과가 나올지 확인하세요!'
+    ]
+  },
+  {
+    emoji: '🃏',
+    title: '④ 미스터리 카드 종류',
+    color: '#ec4899',
+    cards: [
+      { icon: '⚔️', name: '패자의 역습', desc: '꼴찌 모둠이 점수 보너스!' },
+      { icon: '🎲', name: '주사위 벼락', desc: '선택한 모둠 점수 감점!' },
+      { icon: '🎁', name: '아이템 회복', desc: '사용한 아이템을 다시 충전!' },
+      { icon: '🌀', name: '흡수', desc: '다른 모둠 점수를 빼앗아와요!' },
+      { icon: '🛡️', name: '쉴드', desc: '저주를 한 번 막아주는 보호막!' },
+      { icon: '💨', name: '꽝', desc: '아무 일도 일어나지 않아요.' }
+    ]
+  },
+  {
+    emoji: '🎉',
+    title: '이제 시작해봐요!',
+    color: '#22c55e',
+    lines: [
+      '규칙을 잘 기억했나요?',
+      '모둠원과 힘을 합쳐 1등을 노려보세요!',
+      '궁금한 점은 선생님께 질문하세요! 😊'
+    ]
+  }
+];
+
+// =============================================
+// 튜토리얼 오버레이 표시
+// =============================================
+export function showTutorial() {
+  const overlay = document.getElementById('tutorial-overlay');
+  let current = 0;
+
+  function renderSlide(idx) {
+    const slide = TUTORIAL_SLIDES[idx];
+    const slideEl = document.getElementById('tutorial-slide');
+
+    // 슬라이드 내용 생성
+    let html = `
+      <div class="ts-emoji" style="color:${slide.color}">${slide.emoji}</div>
+      <div class="ts-title" style="color:${slide.color}">${slide.title}</div>
+    `;
+
+    if (slide.cards) {
+      // 미스터리 카드 목록 슬라이드
+      html += '<div class="ts-card-list">';
+      slide.cards.forEach(c => {
+        html += `<div class="ts-card-item"><span class="ts-card-icon">${c.icon}</span><span class="ts-card-name">${c.name}</span><span class="ts-card-desc">${c.desc}</span></div>`;
+      });
+      html += '</div>';
+    } else {
+      // 일반 텍스트 슬라이드
+      html += '<div class="ts-lines">';
+      slide.lines.forEach(line => {
+        html += `<p class="ts-line">${line}</p>`;
+      });
+      html += '</div>';
+    }
+
+    slideEl.innerHTML = html;
+
+    // 진행 도트 업데이트
+    const dotsEl = document.getElementById('tutorial-dots');
+    dotsEl.innerHTML = '';
+    TUTORIAL_SLIDES.forEach((_, i) => {
+      const dot = document.createElement('span');
+      dot.className = 'tutorial-dot' + (i === idx ? ' active' : '');
+      dot.addEventListener('click', () => { current = i; renderSlide(i); });
+      dotsEl.appendChild(dot);
+    });
+
+    // 버튼 상태
+    document.getElementById('tutorial-prev').disabled = idx === 0;
+    const nextBtn = document.getElementById('tutorial-next');
+    if (idx === TUTORIAL_SLIDES.length - 1) {
+      nextBtn.textContent = '✓ 닫기';
+      nextBtn.classList.add('finish');
+    } else {
+      nextBtn.textContent = '다음 ▶';
+      nextBtn.classList.remove('finish');
+    }
+  }
+
+  // 이벤트 (매번 새로 등록하지 않기 위해 클론으로 교체)
+  const prevBtn = document.getElementById('tutorial-prev');
+  const nextBtn = document.getElementById('tutorial-next');
+  const closeBtn = document.getElementById('tutorial-close');
+
+  const newPrev  = prevBtn.cloneNode(true);
+  const newNext  = nextBtn.cloneNode(true);
+  const newClose = closeBtn.cloneNode(true);
+  prevBtn.parentNode.replaceChild(newPrev, prevBtn);
+  nextBtn.parentNode.replaceChild(newNext, nextBtn);
+  closeBtn.parentNode.replaceChild(newClose, closeBtn);
+
+  document.getElementById('tutorial-prev').addEventListener('click', () => {
+    if (current > 0) { current--; renderSlide(current); }
+  });
+  document.getElementById('tutorial-next').addEventListener('click', () => {
+    if (current < TUTORIAL_SLIDES.length - 1) {
+      current++;
+      renderSlide(current);
+    } else {
+      overlay.classList.add('hidden');
+    }
+  });
+  document.getElementById('tutorial-close').addEventListener('click', () => {
+    overlay.classList.add('hidden');
+  });
+  // 배경 클릭으로 닫기
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.classList.add('hidden');
+  });
+
+  current = 0;
+  renderSlide(0);
+  overlay.classList.remove('hidden');
+}
+
 // 저주 당함 즉시 알림 토스트 (카운트다운 중 표시)
 // =============================================
 export function showCurseWarning() {

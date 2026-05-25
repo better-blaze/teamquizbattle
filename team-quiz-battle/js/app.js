@@ -619,11 +619,20 @@ function enterAdminView(code) {
     // idle 단계 진입 시 카운트다운 버튼 재활성화 + answers 리스너 해제
     if (game.phase === 'idle') {
       Admin.enableCountdownButton();
+      Admin.hideRestartBanner();
       if (unsubAdminAnswers) { unsubAdminAnswers(); unsubAdminAnswers = null; }
       watchingQIndex = -1;
+    } else if (game.phase === 'ended') {
+      // 게임 종료 → 다시하기 배너 표시
+      Admin.showRestartBanner(() => {
+        if (confirm('점수와 대진표를 초기화하고 대진표 작성부터 다시 시작할까요?')) {
+          restartGame(code);
+        }
+      });
     } else {
       // 카운트다운/풀이중/결과/미스터리 등 비-idle 단계에서는 버튼 비활성화
       Admin.disableCountdownButton();
+      Admin.hideRestartBanner();
     }
 
     // answering 단계 진입 또는 qIndex 변경 시 answers 리스너 재구독
@@ -807,6 +816,50 @@ async function endGame(code) {
 }
 
 // =============================================
+// 게임 재시작 — 같은 방·팀 유지, 점수·대진표만 초기화해 대진표 단계부터 재시작
+// =============================================
+async function restartGame(code) {
+  const teamsSnap = await get(R.teams(code));
+  const teams = teamsSnap.exists() ? teamsSnap.val() : {};
+
+  const batch = {};
+
+  // meta 리셋 (대진표 단계로)
+  batch[`rooms/${code}/meta/status`]            = 'matchup';
+  batch[`rooms/${code}/meta/matchupLocked`]     = false;
+  batch[`rooms/${code}/meta/matchupTimerStart`] = null;
+
+  // game 리셋
+  batch[`rooms/${code}/game/qIndex`]        = 0;
+  batch[`rooms/${code}/game/phase`]         = 'idle';
+  batch[`rooms/${code}/game/countdownStart`] = null;
+  batch[`rooms/${code}/game/questionStart`]  = null;
+
+  // 각 팀 데이터 리셋
+  for (const num of Object.keys(teams)) {
+    batch[`rooms/${code}/teams/${num}/score`]           = 0;
+    batch[`rooms/${code}/teams/${num}/items`]           = { boost: true, curse: true, eraser: true };
+    batch[`rooms/${code}/teams/${num}/shieldActive`]    = false;
+    batch[`rooms/${code}/teams/${num}/curseActive`]     = false;
+    batch[`rooms/${code}/teams/${num}/statusThisQ`]     = null;
+    batch[`rooms/${code}/teams/${num}/shieldBlockedAt`] = null;
+  }
+
+  // 대진표·답변·미스터리·저주 초기화
+  batch[`rooms/${code}/matchup`]  = null;
+  batch[`rooms/${code}/answers`]  = null;
+  batch[`rooms/${code}/mystery`]  = null;
+  batch[`rooms/${code}/curse`]    = null;
+
+  // 관리자 UI 리셋 (버튼 상태)
+  clearAdminMatchupTimer();
+  Admin.resetLobbyUI();
+  Admin.hideRestartBanner();
+
+  await update(ref(db), batch);
+}
+
+// =============================================
 // 세션 초기화 — 방을 DB에서 완전 삭제
 // Firebase 삭제 이벤트가 모든 참여자의 onValue 리스너를 트리거해
 // 학생·상황판이 자동으로 초기 화면으로 복귀함
@@ -825,6 +878,13 @@ async function resetGame(code) {
 // =============================================
 async function enterClientView(code, savedTeam) {
   showView('view-client');
+
+  // 튜토리얼 버튼 연결 (중복 등록 방지)
+  const tutBtn = document.getElementById('client-tutorial-btn');
+  if (tutBtn && !tutBtn._tutorialBound) {
+    tutBtn._tutorialBound = true;
+    tutBtn.addEventListener('click', () => Client.showTutorial());
+  }
 
   // 팀 현황 가져오기
   const teamsSnap = await get(R.teams(code));

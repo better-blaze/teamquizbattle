@@ -1005,6 +1005,22 @@ html, body {
 ::-webkit-scrollbar-thumb { background: var(--c-border); border-radius: 3px; }
 
 /* =============================================
+   관리자 다시하기 배너
+   ============================================= */
+.admin-restart-banner {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  background: linear-gradient(135deg, rgba(34,197,94,.12), rgba(99,102,241,.1));
+  border: 2px solid var(--c-green);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-top: 16px;
+  animation: fadeIn .4s;
+}
+.restart-banner-msg {
+  font-size: 1.2rem; font-weight: 900; color: var(--c-gold);
+}
+
+/* =============================================
    클라이언트 쉴드 막음 효과
    ============================================= */
 @keyframes clientShieldFlash {
@@ -1065,4 +1081,152 @@ html, body {
   font-size: .82rem; color: var(--c-text);
   background: var(--c-surface2); border: 1px solid var(--c-border);
   border-radius: 8px; padding: 6px 10px;
+}
+
+/* =============================================
+   튜토리얼 버튼 (학생 뷰 우하단 고정)
+   ============================================= */
+.tutorial-btn {
+  position: absolute;
+  top: 14px;
+  right: 64px; /* 음소거 버튼(44px) + 간격(6px) */
+  z-index: 100;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(99,102,241,.85);
+  border: 1px solid var(--c-border);
+  color: #fff;
+  font-size: 1.3rem;
+  cursor: pointer;
+  transition: background .15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.tutorial-btn:hover { background: rgba(129,140,248,.95); }
+
+/* =============================================
+   튜토리얼 오버레이
+   ============================================= */
+.tutorial-overlay {
+  position: fixed; inset: 0; z-index: 900;
+  background: rgba(0,0,0,.75);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  animation: fadeIn .25s;
+}
+.tutorial-overlay.hidden { display: none; }
+
+.tutorial-card {
+  position: relative;
+  background: var(--c-surface);
+  border: 2px solid var(--c-border);
+  border-radius: 24px;
+  width: 100%; max-width: 480px;
+  padding: 28px 24px 20px;
+  box-shadow: 0 16px 60px rgba(0,0,0,.6);
+  display: flex; flex-direction: column; gap: 0;
+}
+
+.tutorial-close {
+  position: absolute; top: 14px; right: 16px;
+  background: rgba(255,255,255,.08); border: 1px solid var(--c-border);
+  color: var(--c-sub); border-radius: 50%;
+  width: 34px; height: 34px;
+  font-size: 1rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.tutorial-close:hover { background: rgba(255,255,255,.18); }
+
+/* 슬라이드 내용 */
+.tutorial-slide {
+  min-height: 260px;
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center;
+  padding: 8px 0 16px;
+}
+
+.ts-emoji {
+  font-size: 3.5rem;
+  margin-bottom: 10px;
+  line-height: 1;
+}
+.ts-title {
+  font-size: 1.35rem;
+  font-weight: 900;
+  margin-bottom: 18px;
+}
+.ts-lines {
+  display: flex; flex-direction: column; gap: 6px;
+  width: 100%;
+}
+.ts-line {
+  font-size: 1rem;
+  color: var(--c-text);
+  line-height: 1.6;
+}
+
+/* 미스터리 카드 목록 */
+.ts-card-list {
+  width: 100%;
+  display: flex; flex-direction: column; gap: 7px;
+  margin-top: 4px;
+}
+.ts-card-item {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--c-surface2);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  padding: 7px 12px;
+  text-align: left;
+}
+.ts-card-icon { font-size: 1.3rem; flex-shrink: 0; }
+.ts-card-name {
+  font-size: .9rem; font-weight: 900; color: var(--c-text);
+  min-width: 80px;
+}
+.ts-card-desc { font-size: .82rem; color: var(--c-sub); }
+
+/* 하단 내비게이션 */
+.tutorial-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-border);
+}
+
+.tutorial-nav-btn {
+  background: var(--c-surface2);
+  border: 1px solid var(--c-border);
+  color: var(--c-text);
+  border-radius: 10px;
+  padding: 9px 18px;
+  font-size: .9rem; font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+  min-width: 80px;
+}
+.tutorial-nav-btn:disabled { opacity: .35; cursor: default; }
+.tutorial-nav-btn:not(:disabled):hover { background: var(--c-border); }
+.tutorial-nav-btn.primary,
+.tutorial-nav-btn.finish {
+  background: var(--c-primary);
+  color: #fff; border-color: var(--c-primary);
+}
+.tutorial-nav-btn.primary:hover,
+.tutorial-nav-btn.finish:hover { opacity: .88; }
+
+/* 진행 도트 */
+.tutorial-dots {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  justify-content: center;
+}
+.tutorial-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--c-border);
+  cursor: pointer;
+  transition: background .2s, transform .2s;
+}
+.tutorial-dot.active {
+  background: var(--c-primary);
+  transform: scale(1.4);
 }

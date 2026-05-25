@@ -207,6 +207,33 @@ export function showStartGameButton() {
   if (btn) btn.classList.remove('hidden');
 }
 
+// =============================================
+// 다시하기 배너 (게임 종료 시)
+// =============================================
+export function showRestartBanner(onRestart) {
+  const banner = document.getElementById('admin-restart-banner');
+  if (banner) banner.classList.remove('hidden');
+  const btn = document.getElementById('btn-restart-game');
+  if (btn) btn.onclick = onRestart;
+}
+
+export function hideRestartBanner() {
+  const banner = document.getElementById('admin-restart-banner');
+  if (banner) banner.classList.add('hidden');
+}
+
+// 대기실 UI 초기화 (다시하기 시 버튼 상태 리셋)
+export function resetLobbyUI() {
+  const startBtn = document.getElementById('btn-start-game');
+  if (startBtn) startBtn.classList.add('hidden');
+
+  const timerBtn = document.getElementById('btn-start-matchup-timer');
+  if (timerBtn) { timerBtn.disabled = false; timerBtn.textContent = '⏱ 100초 카운트다운 시작'; }
+
+  const timerEl = document.getElementById('admin-matchup-timer');
+  if (timerEl) { timerEl.textContent = '—'; timerEl.style.color = ''; }
+}
+
 // 카운트다운 버튼 비활성화 — 게임 진행 중 (텍스트 유지)
 export function disableCountdownButton() {
   const btn = document.getElementById('btn-start-countdown');
