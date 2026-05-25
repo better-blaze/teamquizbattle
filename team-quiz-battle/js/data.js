@@ -51,7 +51,11 @@ export async function loadQuestions() {
   return dataRows.map(r => {
     // 정답: 단답형은 '|' 구분 복수 정답 허용
     const rawAnswer = r[Q_COL.ANSWER] || '';
-    const qType = r[Q_COL.TYPE].trim(); // trim 적용 (공백 포함된 셀 대응)
+
+    // 유형 정규화: 모든 공백 제거 + trim
+    // "선 잇기" → "선잇기", "객 관식" → "객관식" 등 오입력 대응
+    const qType = r[Q_COL.TYPE].replace(/\s+/g, '');
+
     let answers = [];
     if (qType === '단답형') {
       answers = rawAnswer.split('|').map(a => a.replace(/\s+/g, '').toLowerCase());
@@ -60,20 +64,31 @@ export async function loadQuestions() {
     }
 
     // 선 잇기 정답 파싱: "왼쪽1:오른쪽1 | 왼쪽2:오른쪽2"
-    // ※ 버그 수정: 이전 코드는 type 비교 시 trim 누락으로 파싱 실패했음
+    // 전각 파이프(｜)·전각 콜론(：) 등 유니코드 변형도 정규화해서 처리
     let matchPairs = [];
     if (qType === '선잇기') {
-      matchPairs = rawAnswer.split('|')
+      // 전각 특수문자 → 반각 정규화
+      const normalizedAnswer = rawAnswer
+        .replace(/[｜∣]/g, '|')   // 전각·수학 파이프 → |
+        .replace(/[：∶]/g, ':');   // 전각·비율 콜론  → :
+      matchPairs = normalizedAnswer.split('|')
         .map(pair => {
           const trimmed = pair.trim();
           const colonIdx = trimmed.indexOf(':');
-          if (colonIdx < 0) return null; // ':' 없으면 무효 페어
+          if (colonIdx < 0) return null;
           return {
             left:  trimmed.slice(0, colonIdx).trim(),
             right: trimmed.slice(colonIdx + 1).trim()
           };
         })
-        .filter(p => p && p.left && p.right); // null·빈 값 제거
+        .filter(p => p && p.left && p.right);
+
+      // 파싱 결과 디버그 로그 (개발 확인용)
+      if (matchPairs.length === 0) {
+        console.warn('[선잇기] matchPairs 파싱 실패 — rawAnswer:', JSON.stringify(rawAnswer));
+      } else {
+        console.log('[선잇기] matchPairs 파싱 성공:', matchPairs);
+      }
     }
 
     // 객관식 보기 목록

@@ -133,11 +133,12 @@ async function main() {
     window.history.replaceState({}, '', window.location.pathname);
     showView('view-setting');
     initSettingView({
-      onCreateRoom:   handleCreateRoom,
-      onJoinStudent:  (code) => handleJoin(code, 'student'),
-      onJoinBoard:    (code) => handleJoin(code, 'board'),
-      onJoinAdmin:    (code) => handleJoin(code, 'admin'),
-      onClearSession: clearLocalSession
+      onCreateRoom:        handleCreateRoom,
+      onJoinStudent:       (code) => handleJoin(code, 'student'),
+      onJoinBoard:         (code) => handleJoin(code, 'board'),
+      onJoinAdmin:         (code) => handleJoin(code, 'admin'),
+      onClearSession:      clearLocalSession,
+      onResetAllSessions:  resetAllSessions
     });
     showResetSuccessMsg();
     return;
@@ -183,11 +184,12 @@ async function main() {
   // ③ 세팅 뷰 진입
   showView('view-setting');
   initSettingView({
-    onCreateRoom:  handleCreateRoom,
-    onJoinStudent: (code) => handleJoin(code, 'student'),
-    onJoinBoard:   (code) => handleJoin(code, 'board'),
-    onJoinAdmin:   (code) => handleJoin(code, 'admin'),
-    onClearSession: clearLocalSession
+    onCreateRoom:       handleCreateRoom,
+    onJoinStudent:      (code) => handleJoin(code, 'student'),
+    onJoinBoard:        (code) => handleJoin(code, 'board'),
+    onJoinAdmin:        (code) => handleJoin(code, 'admin'),
+    onClearSession:     clearLocalSession,
+    onResetAllSessions: resetAllSessions
   });
 }
 
@@ -199,6 +201,32 @@ function clearLocalSession() {
   localStorage.removeItem(LS.RESET_COUNT);
 }
 
+// Firebase의 모든 방(rooms) 삭제 → 접속 중인 모든 클라이언트의 리스너가
+// 방 삭제를 감지하고 자동으로 세팅 화면으로 복귀됨
+// rooms/ 전체 삭제는 권한 거부될 수 있으므로 각 방을 개별 삭제
+async function resetAllSessions() {
+  try {
+    const snap = await get(ref(db, 'rooms'));
+    if (snap.exists()) {
+      const deletions = Object.keys(snap.val()).map(code =>
+        remove(ref(db, `rooms/${code}`))
+      );
+      await Promise.all(deletions);
+    }
+    clearLocalSession();
+    showView('view-setting');
+    const msg = document.getElementById('setting-message');
+    if (msg) {
+      msg.textContent = '✅ 모든 세션이 초기화됐습니다.';
+      msg.style.borderColor = 'var(--c-green)';
+      msg.style.color       = 'var(--c-text)';
+      msg.classList.remove('hidden');
+    }
+  } catch (e) {
+    alert('초기화 실패: ' + e.message);
+  }
+}
+
 // 리스너 해제 + 세션 초기화 + 세팅 뷰로 복귀 (공통 헬퍼)
 function navigateToSetting() {
   state.unsubscribers.forEach(fn => fn());
@@ -206,11 +234,12 @@ function navigateToSetting() {
   clearLocalSession();
   showView('view-setting');
   initSettingView({
-    onCreateRoom:   handleCreateRoom,
-    onJoinStudent:  (c) => handleJoin(c, 'student'),
-    onJoinBoard:    (c) => handleJoin(c, 'board'),
-    onJoinAdmin:    (c) => handleJoin(c, 'admin'),
-    onClearSession: clearLocalSession
+    onCreateRoom:       handleCreateRoom,
+    onJoinStudent:      (c) => handleJoin(c, 'student'),
+    onJoinBoard:        (c) => handleJoin(c, 'board'),
+    onJoinAdmin:        (c) => handleJoin(c, 'admin'),
+    onClearSession:     clearLocalSession,
+    onResetAllSessions: resetAllSessions
   });
 }
 
@@ -405,9 +434,10 @@ async function handleBoardGameUpdate(code, game, boardAllMatchups = {}) {
       const answers = snap.val();
       const q = state.questions[game.qIndex];
       const results = Object.entries(answers).map(([t, a]) => ({
-        teamNum: t, answer: a.value, score: a.score, correct: a.correct
+        teamNum: t, answer: a.value, score: a.score, correct: a.correct,
+        boostApplied: a.boostApplied, baseScore: a.baseScore
       }));
-      Board.showBoardResults(results);
+      Board.showBoardResults(results, q?.type);
     });
     state.unsubscribers.push(unsubAns);
   }
@@ -499,12 +529,45 @@ function enterAdminView(code) {
     Admin.renderAdminScorePanel(snap.val());
   });
 
+  // 전체 제출 감지용 answers 리스너 (qIndex가 바뀔 때마다 재구독)
+  let unsubAdminAnswers = null;
+  let watchingQIndex    = -1;
+
+  function subscribeAdminAnswers(qIndex, teamNums) {
+    if (unsubAdminAnswers) { unsubAdminAnswers(); unsubAdminAnswers = null; }
+    watchingQIndex = qIndex;
+
+    unsubAdminAnswers = onValue(R.answers(code, qIndex), snap => {
+      const answers = snap.exists() ? snap.val() : {};
+      // 모든 모둠이 제출했으면 카운트다운 버튼 비활성화
+      const allSubmitted = teamNums.length > 0 && teamNums.every(n => answers[n]);
+      if (allSubmitted) Admin.markCountdownComplete();
+    });
+  }
+
   // game 리스너
   const unsubGame = onValue(R.game(code), async snap => {
     if (!snap.exists()) return;
     const game = snap.val();
     const q = state.questions[game.qIndex];
     if (q) Admin.updateAdminQuestionPreview(q, game.qIndex, state.questions.length);
+
+    // idle 단계 진입 시 카운트다운 버튼 재활성화 + answers 리스너 해제
+    if (game.phase === 'idle') {
+      Admin.enableCountdownButton();
+      if (unsubAdminAnswers) { unsubAdminAnswers(); unsubAdminAnswers = null; }
+      watchingQIndex = -1;
+    } else {
+      // 카운트다운/풀이중/결과/미스터리 등 비-idle 단계에서는 버튼 비활성화
+      Admin.disableCountdownButton();
+    }
+
+    // answering 단계 진입 또는 qIndex 변경 시 answers 리스너 재구독
+    if (game.phase === 'answering' && game.qIndex !== watchingQIndex) {
+      const teamsSnap = await get(R.teams(code));
+      const teamNums  = teamsSnap.exists() ? Object.keys(teamsSnap.val()) : [];
+      subscribeAdminAnswers(game.qIndex, teamNums);
+    }
 
     // 실시간 답변 현황
     const teamsSnap = await get(R.teams(code));
@@ -963,22 +1026,28 @@ async function handleClientSubmit(code, teamNum, q, game, value, elapsedSec, tea
 
   // 점수 계산 (미스터리 문제는 최대 1점 — 카드 효과가 메인 보상)
   let score = 0;
+  let baseScore    = 0;
+  let boostApplied = false;
   if (isCorrect) {
-    score = q.isMystery ? 1 : calcScore(elapsedSec, q.perfTime);
+    score     = q.isMystery ? 1 : calcScore(elapsedSec, q.perfTime);
+    baseScore = score;
     // 1.5배 아이템 적용
     if (Client.isBoostActive()) {
-      score = Math.ceil(score * 1.5);
+      boostApplied = true;
+      score        = Math.ceil(score * 1.5);
       Client.clearBoost();
     }
   }
 
   // Firebase에 답변 저장
   const answerData = {
-    value:       Array.isArray(value) ? JSON.stringify(value) : String(value),
-    submittedAt: Date.now(),
+    value:        Array.isArray(value) ? JSON.stringify(value) : String(value),
+    submittedAt:  Date.now(),
     elapsedSec,
     score,
-    correct:     isCorrect
+    baseScore:    boostApplied ? baseScore : score,
+    boostApplied,
+    correct:      isCorrect
   };
   await set(R.answer(code, game.qIndex, teamNum), answerData);
 
@@ -996,20 +1065,26 @@ async function handleClientSubmit(code, teamNum, q, game, value, elapsedSec, tea
   Client.showQuizResult({
     correct:      isCorrect,
     score,
+    baseScore,
     correctAnswer: displayAnswer,
-    boostApplied:  Client.isBoostActive()
+    boostApplied
   });
 
-  // 미스터리 문제 && 정답인 경우 → 미스터리 카드 활성화
-  if (isCorrect && q.isMystery) {
-    const deck = createMysteryDeck();
-    await set(R.mystery(code, game.qIndex), {
-      deck,
-      choosingTeam: teamNum,
-      chosenIndex:  -1,
-      result:       null
-    });
-    await update(R.game(code), { phase: 'mystery' });
+  // 미스터리 문제 && 정답 → 가장 먼저 맞힌 모둠이 카드 선택권 획득
+  // 오답은 단순 기록만 하고 phase를 변경하지 않음 (다른 모둠이 계속 도전 가능)
+  // 동시 제출 경쟁 조건 방지: 현재 phase가 아직 'answering'인지 재확인
+  if (q.isMystery && isCorrect) {
+    const freshGameSnap = await get(R.game(code));
+    if (freshGameSnap.val()?.phase === 'answering') {
+      const deck = createMysteryDeck();
+      await set(R.mystery(code, game.qIndex), {
+        deck,
+        choosingTeam: teamNum,
+        chosenIndex:  -1,
+        result:       null
+      });
+      await update(R.game(code), { phase: 'mystery' });
+    }
   }
 }
 

@@ -40,7 +40,6 @@ export const GAME = {
   COUNTDOWN_SECONDS:   5,     // 문제 전 카운트다운(초)
   BASE_SCORE:          10,    // 기본 점수
   MIN_SCORE:           3,     // 정답 시 최소 보장 점수
-  MAX_PARTICIPATION_DIFF: 2,  // 모둠원 간 참전 횟수 최대 차이
   CURSE_MIN_MS:        1500,  // 저주 최소 지연(ms)
   CURSE_MAX_MS:        2500,  // 저주 최대 지연(ms)
   ERASER_TIME_BONUS:   2,     // 지우개 사용 후 타이머 보상(초)

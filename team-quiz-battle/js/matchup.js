@@ -2,24 +2,24 @@
 // matchup.js — 대진표 로직 및 UI
 // =============================================
 
-import { GAME } from './config.js';
+// =============================================
+// 멤버당 최대 참전 횟수 계산
+// = ceil(문제 수 / 멤버 수)
+// 나누어 떨어지면 N, 나머지가 있으면 N+1
+// =============================================
+export function calcMaxAllowed(totalQuestions, memberCount) {
+  if (memberCount <= 0) return totalQuestions;
+  return Math.ceil(totalQuestions / memberCount);
+}
 
 // =============================================
-// 핵심 규칙: 모둠원 간 참전 횟수 차이 ≤ 2
-// 특정 멤버를 하나 더 추가할 때 규칙을 위반하는지 확인
+// 핵심 규칙: 최대 참전 횟수(ceil(문제/멤버)) 초과 여부 확인
 // counts: { '김민준': 2, '김민서': 1 }
 // candidate: 추가하려는 멤버 이름
+// maxAllowed: calcMaxAllowed(totalQuestions, members.length)
 // =============================================
-export function wouldViolateRule(counts, candidate) {
-  // 후보 멤버를 1회 추가했을 때의 카운트 계산
-  const futureCounts = { ...counts };
-  futureCounts[candidate] = (futureCounts[candidate] || 0) + 1;
-
-  const values = Object.values(futureCounts);
-  const maxC   = Math.max(...values);
-  const minC   = Math.min(...values);
-
-  return (maxC - minC) > GAME.MAX_PARTICIPATION_DIFF;
+export function wouldViolateRule(counts, candidate, maxAllowed) {
+  return (counts[candidate] || 0) + 1 > maxAllowed;
 }
 
 // 현재 대진표에서 각 멤버의 참전 횟수 계산
@@ -35,34 +35,27 @@ export function countParticipation(matchup, members) {
 
 // =============================================
 // 빈 슬롯 자동 채우기 (대진표 마감 시)
-// questions: 전체 문제 배열
-// members: 해당 모둠 학생 이름 배열
-// matchup: 현재 대진표 { qIndex: name | null }
+// 로직: 현재 참전 횟수가 가장 적고 maxAllowed 미만인 멤버를 순서대로 배정
+// 결과: 모든 멤버가 N번 이상 N+1번 이하 참전 (N = floor(문제/멤버))
 // =============================================
 export function autoFillMatchup(questions, members, matchup) {
-  const filled = { ...matchup };
+  const filled     = { ...matchup };
+  const maxAllowed = calcMaxAllowed(questions.length, members.length);
 
   for (let i = 0; i < questions.length; i++) {
     const key = String(i);
-    if (filled[key]) continue; // 이미 배정된 경우 건너뜀
+    if (filled[key]) continue;
 
-    // 현재 카운트 기준 참전 가능한 멤버 찾기
     const counts = countParticipation(filled, members);
-    const minCount = Math.min(...members.map(m => counts[m]));
 
-    // 가장 적게 참전한 멤버 중 규칙을 어기지 않는 사람 선택
-    const eligible = members.filter(m => {
-      return counts[m] === minCount && !wouldViolateRule(counts, m);
-    });
+    // maxAllowed 미만인 멤버를 참전 횟수 오름차순으로 정렬 후 첫 번째 선택
+    const eligible = members
+      .filter(m => counts[m] < maxAllowed)
+      .sort((a, b) => counts[a] - counts[b]);
 
-    if (eligible.length === 0) {
-      // 규칙 범위 내 아무나 (마지막 수단)
-      const any = members.find(m => !wouldViolateRule(counts, m));
-      filled[key] = any || members[i % members.length];
-    } else {
-      // 적격자 중 무작위 선택
-      filled[key] = eligible[Math.floor(Math.random() * eligible.length)];
-    }
+    filled[key] = eligible.length > 0
+      ? eligible[0]
+      : members[i % members.length]; // 이론상 발생하지 않는 마지막 수단
   }
 
   return filled;
@@ -111,24 +104,30 @@ export function renderMatchupGrid({
 // 멤버 버튼 렌더링
 // =============================================
 export function renderMemberButtons({
-  container,    // .cs-member-buttons 엘리먼트
-  members,      // 멤버 이름 배열
-  counts,       // 현재 참전 횟수 { name: count }
-  onAssign      // 클릭 콜백 (memberName) => {}
+  container,      // .cs-member-buttons 엘리먼트
+  members,        // 멤버 이름 배열
+  counts,         // 현재 참전 횟수 { name: count }
+  totalQuestions, // 전체 문제 수 (최대 참전 횟수 계산용)
+  onAssign        // 클릭 콜백 (memberName) => {}
 }) {
   container.innerHTML = '';
 
-  for (const name of members) {
-    const btn = document.createElement('button');
-    btn.className = 'member-btn';
-    btn.textContent = `${name} (${counts[name] || 0}회)`;
+  const maxAllowed = calcMaxAllowed(totalQuestions, members.length);
 
-    // 이 멤버를 선택하면 규칙 위반인지 미리 계산
-    const willViolate = wouldViolateRule(counts, name);
-    if (willViolate) {
+  for (const name of members) {
+    const btn      = document.createElement('button');
+    const current  = counts[name] || 0;
+    const atMax    = current >= maxAllowed;
+
+    btn.className   = 'member-btn';
+    btn.textContent = atMax
+      ? `${name} (${current}회 — 완료)`
+      : `${name} (${current}회)`;
+
+    if (atMax) {
       btn.classList.add('invalid');
       btn.disabled = true;
-      btn.title = '이 학생을 배정하면 참전 균형이 깨집니다';
+      btn.title    = `최대 참전 횟수(${maxAllowed}회)에 도달했습니다`;
     } else {
       btn.addEventListener('click', () => onAssign(name));
     }

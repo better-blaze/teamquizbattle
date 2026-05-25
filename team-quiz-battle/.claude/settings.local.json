@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(node --input-type=module)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "WebFetch(domain:docs.google.com)",
+      "WebFetch(domain:doc-0c-34-sheets.googleusercontent.com)"
     ]
   }
 }

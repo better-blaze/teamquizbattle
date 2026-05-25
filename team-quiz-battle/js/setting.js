@@ -13,7 +13,7 @@ export function generateRoomCode() {
 }
 
 // 세팅 뷰 초기화 — 버튼 이벤트 등록
-export function initSettingView({ onCreateRoom, onJoinStudent, onJoinBoard, onJoinAdmin, onClearSession }) {
+export function initSettingView({ onCreateRoom, onJoinStudent, onJoinBoard, onJoinAdmin, onClearSession, onResetAllSessions }) {
   const teamCountSel   = document.getElementById('team-count-select');
   const roomCodeInput  = document.getElementById('room-code-input');
   const btnCreate      = document.getElementById('btn-create-room');
@@ -72,6 +72,19 @@ export function initSettingView({ onCreateRoom, onJoinStudent, onJoinBoard, onJo
   roomCodeInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') joinWithCode('student');
   });
+
+  // 전체 세션 초기화 버튼 (Firebase의 모든 방 삭제)
+  const btnResetAll = document.getElementById('btn-reset-all-sessions');
+  if (btnResetAll) {
+    // 이미 등록된 리스너 중복 방지
+    const newBtn = btnResetAll.cloneNode(true);
+    btnResetAll.replaceWith(newBtn);
+    newBtn.addEventListener('click', () => {
+      if (confirm('⚠️ 현재 진행 중인 모든 방을 삭제하고 모든 참여자를 처음 화면으로 보냅니다.\n정말 초기화할까요?')) {
+        onResetAllSessions && onResetAllSessions();
+      }
+    });
+  }
 
   // 이전 세션 초기화 링크 (개발/테스트 편의용)
   // 이미 저장된 방이 있을 때만 표시

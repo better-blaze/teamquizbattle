@@ -171,7 +171,7 @@ export function hideBoardTimerBar() {
 // 결과 칩 표시 (하단 40%)
 // results: [{ teamNum, teamName, answer, score, correct }]
 // =============================================
-export function showBoardResults(results) {
+export function showBoardResults(results, questionType) {
   const area = document.getElementById('board-result-area');
   area.innerHTML = '';
 
@@ -181,17 +181,31 @@ export function showBoardResults(results) {
     const chip = document.createElement('div');
     chip.className = 'board-result-chip ' + (r.correct ? 'correct' : 'wrong');
 
-    const teamEl   = document.createElement('div');
+    const teamEl = document.createElement('div');
     teamEl.className = 'board-result-team';
     teamEl.textContent = `${r.teamNum}모둠`;
 
     const answerEl = document.createElement('div');
     answerEl.className = 'board-result-answer';
-    answerEl.textContent = r.correct ? '✅ 정답' : `❌ ${r.answer || '미제출'}`;
 
-    const scoreEl  = document.createElement('div');
+    if (r.correct) {
+      answerEl.textContent = '✅ 정답';
+    } else if (!r.answer) {
+      answerEl.textContent = '❌ 미제출';
+    } else if ((questionType || '').replace(/\s+/g, '') === '선잇기') {
+      // 선잇기는 JSON 배열이므로 입력 내용 대신 결과만 표시
+      answerEl.textContent = '❌ 오답';
+    } else {
+      answerEl.textContent = `❌ ${r.answer}`;
+    }
+
+    const scoreEl = document.createElement('div');
     scoreEl.className = 'board-result-score';
-    scoreEl.textContent = r.correct ? `+${r.score}점` : '0점';
+    if (r.correct && r.boostApplied) {
+      scoreEl.textContent = `${r.baseScore}점×1.5배=${r.score}점`;
+    } else {
+      scoreEl.textContent = r.correct ? `+${r.score}점` : '0점';
+    }
 
     chip.append(teamEl, answerEl, scoreEl);
     area.appendChild(chip);
@@ -384,10 +398,26 @@ export function showMysteryEffect(cardName, effectData, message) {
     }
   }
 
-  // 일정 시간 후 자동 숨김
-  const duration = (cardName === '주사위 벼락') ? 4500 :
-                   (cardName === '흡수')        ? 4000 : 3000;
-  setTimeout(() => { if (overlay) overlay.style.display = 'none'; }, duration);
+  // 닫기 버튼 (클릭 시 오버레이 숨김)
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕ 닫기';
+  closeBtn.style.cssText = `
+    margin-top:24px; padding:12px 36px;
+    background:#334155; color:#f1f5f9;
+    border:2px solid #64748b; border-radius:12px;
+    font-size:1.1rem; font-weight:700; cursor:pointer;
+    transition:background .2s, border-color .2s;
+  `;
+  closeBtn.addEventListener('mouseover', () => {
+    closeBtn.style.background = '#475569';
+    closeBtn.style.borderColor = '#94a3b8';
+  });
+  closeBtn.addEventListener('mouseout', () => {
+    closeBtn.style.background = '#334155';
+    closeBtn.style.borderColor = '#64748b';
+  });
+  closeBtn.addEventListener('click', () => { overlay.style.display = 'none'; });
+  overlay.appendChild(closeBtn);
 }
 
 // 주사위 벼락 애니메이션

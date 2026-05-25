@@ -207,6 +207,29 @@ export function showStartGameButton() {
   if (btn) btn.classList.remove('hidden');
 }
 
+// 카운트다운 버튼 비활성화 — 게임 진행 중 (텍스트 유지)
+export function disableCountdownButton() {
+  const btn = document.getElementById('btn-start-countdown');
+  if (!btn) return;
+  btn.disabled = true;
+}
+
+// 카운트다운 버튼 비활성화 — 전체 모둠 제출 완료 표시
+export function markCountdownComplete() {
+  const btn = document.getElementById('btn-start-countdown');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = '✅ 모든 모둠 제출 완료';
+}
+
+// 카운트다운 버튼 재활성화 (idle 단계 진입 시)
+export function enableCountdownButton() {
+  const btn = document.getElementById('btn-start-countdown');
+  if (!btn) return;
+  btn.disabled = false;
+  btn.textContent = '▶ 5초 카운트다운';
+}
+
 // =============================================
 // 테스트용 링크 패널 표시
 // 방 생성 직후 호출 — 각 역할별 URL을 복사할 수 있게 제공

@@ -5,7 +5,7 @@
 import { ITEM_INFO, ITEM_TYPES, MYSTERY_INFO } from './config.js';
 import { MatchingCanvas, calcScore, checkShortAnswer, checkMultipleChoice, checkMatching } from './quiz.js';
 import { buildItemUpdate } from './items.js';
-import { renderMatchupGrid, renderMemberButtons, countParticipation, wouldViolateRule } from './matchup.js';
+import { renderMatchupGrid, renderMemberButtons, countParticipation, wouldViolateRule, calcMaxAllowed } from './matchup.js';
 import { buildInfoCards } from './data.js';
 import * as Sound from './sound.js';
 
@@ -70,15 +70,17 @@ export function renderMatchupPhase({
 
   // 멤버 버튼 렌더링
   function refreshMemberBtns() {
-    const counts = countParticipation(currentMatchup, members);
+    const counts     = countParticipation(currentMatchup, members);
+    const maxAllowed = calcMaxAllowed(questions.length, members.length);
     renderMemberButtons({
-      container: document.getElementById('cs-member-buttons'),
+      container:      document.getElementById('cs-member-buttons'),
       members,
       counts,
+      totalQuestions: questions.length,
       onAssign:  (name) => {
         if (submitted || selectedQIdx === null) return;
-        const counts = countParticipation(currentMatchup, members);
-        if (wouldViolateRule(counts, name)) return;
+        const latestCounts = countParticipation(currentMatchup, members);
+        if (wouldViolateRule(latestCounts, name, maxAllowed)) return;
 
         currentMatchup[String(selectedQIdx)] = name;
         selectedQIdx = null;
@@ -220,8 +222,8 @@ export function showQuizPhase({
   // 이전 캔버스 정리
   if (_matchingCanvas) { _matchingCanvas.destroy(); _matchingCanvas = null; }
   _itemErasedTime = 0;
-  _boostActive    = false;
-  _eraserPending  = false;
+  // _boostActive / _eraserPending은 카운트다운 시작(showCountdownWithItems)에서만 초기화
+  // 여기서 초기화하면 카운트다운 중 사용한 아이템이 문제 시작 직후 무효화됨
 
   // 결과 영역 초기화
   const resultEl = document.getElementById('cq-result');
@@ -284,8 +286,10 @@ function showCurseOverlay(delayMs, onEnd) {
   }, 100);
 }
 
-// 정답 입력 영역 표시 (저주 지연 후 또는 즉시)
+// 정답 입력 영역 표시 (저주 지연 후, 즉시, 또는 지우개 재시도 시)
 function showAnswerArea(question, onSubmit) {
+  // 이전 캔버스 정리 (지우개 재시도로 재호출될 때 필요)
+  if (_matchingCanvas) { _matchingCanvas.destroy(); _matchingCanvas = null; }
   _questionStartMs = Date.now();
   const answerArea = document.getElementById('cq-answer-area');
   answerArea.classList.remove('hidden');
@@ -295,17 +299,16 @@ function showAnswerArea(question, onSubmit) {
   document.getElementById('cq-sa-area').classList.add('hidden');
   document.getElementById('cq-match-area').classList.add('hidden');
 
-  switch (question.type) {
+  // 유형명 공백 제거 후 비교 (스프레드시트 오입력 대응: "선 잇기" → "선잇기")
+  const qType = (question.type || '').replace(/\s+/g, '');
+  switch (qType) {
     case '객관식': showMCOptions(question, onSubmit);    break;
     case '단답형': showShortAnswer(question, onSubmit);  break;
     case '선잇기': showMatching(question, onSubmit);     break;
+    default:
+      console.error('[showAnswerArea] 알 수 없는 유형:', JSON.stringify(question.type));
   }
 
-  // 지우개가 카운트다운 중 사전 활성화됐으면 문제 로드 후 자동 적용
-  if (_eraserPending) {
-    _eraserPending = false;
-    setTimeout(() => handleEraserItem(), 300); // 렌더링 완료 후 적용
-  }
 }
 
 // 객관식 보기
@@ -355,6 +358,16 @@ function showMatching(question, onSubmit) {
   area.classList.remove('hidden');
   btn.disabled = true;
 
+  // matchPairs가 비어 있으면 파싱 실패 안내 표시
+  if (!question.matchPairs || question.matchPairs.length === 0) {
+    const leftCol = document.getElementById('cq-left-col');
+    if (leftCol) {
+      leftCol.innerHTML = '<div style="color:var(--c-red);padding:12px;font-size:.9rem;">⚠️ 선잇기 데이터 오류<br>스프레드시트 정답 형식을 확인하세요<br>(예: 사자:맹수 | 고양이:애완동물)</div>';
+    }
+    console.error('[선잇기] question.matchPairs 비어 있음 — type:', JSON.stringify(question.type), 'rawAnswer:', question.rawAnswer);
+    return;
+  }
+
   _matchingCanvas = new MatchingCanvas({
     canvasEl:   document.getElementById('cq-match-canvas'),
     leftColEl:  document.getElementById('cq-left-col'),
@@ -365,26 +378,52 @@ function showMatching(question, onSubmit) {
   _matchingCanvas.onAllConnected = () => { btn.disabled = false; };
 
   btn.onclick = () => {
-    const userPairs = _matchingCanvas.getUserPairs();
+    // 클릭 시점의 캔버스 인스턴스를 캡처
+    // 지우개 재시도 시 submitAnswer 내부에서 _matchingCanvas가 새 인스턴스로 교체되므로
+    // 교체 후에는 submit()을 호출하지 않도록 동일 인스턴스인지 확인
+    const canvas    = _matchingCanvas;
+    const userPairs = canvas.getUserPairs();
     const elapsed   = (Date.now() - _questionStartMs) / 1000 + _itemErasedTime;
     submitAnswer(userPairs, elapsed, question, onSubmit);
-    _matchingCanvas.submit();
+    if (_matchingCanvas === canvas) canvas.submit();
   };
 }
 
 // 정답 제출 처리
 function submitAnswer(value, elapsedSec, question, onSubmit) {
-  // 제출 후 입력 비활성화
+  // 지우개 아이템: 오답 제출 시 타이머 초기화 후 재도전 기회 1회
+  if (_eraserPending) {
+    const correct = checkAnswerCorrect(question, value);
+    if (!correct) {
+      _eraserPending   = false;
+      _questionStartMs = Date.now(); // 타이머 초기화
+      _itemErasedTime  = 0;
+      showItemEffect('🩹 지우개! 다시 도전하세요!');
+      Sound.playItemUse();
+      showAnswerArea(question, onSubmit); // 답입력 영역 재표시
+      return;
+    }
+  }
+
+  // 일반 제출
   document.getElementById('cq-answer-area').classList.add('hidden');
   document.getElementById('cq-item-bar').classList.add('hidden');
-
   onSubmit(value, elapsedSec);
+}
+
+// 정답 여부 판정 — submitAnswer 내 지우개 처리용
+function checkAnswerCorrect(question, value) {
+  const qType = (question.type || '').replace(/\s+/g, '');
+  if (qType === '객관식') return checkMultipleChoice(value, question.answers[0]);
+  if (qType === '단답형') return checkShortAnswer(value, question.answers);
+  if (qType === '선잇기') return checkMatching(value, question.matchPairs);
+  return false;
 }
 
 // =============================================
 // 결과 표시 (정답/오답)
 // =============================================
-export function showQuizResult({ correct, score, correctAnswer, boostApplied }) {
+export function showQuizResult({ correct, score, correctAnswer, boostApplied, baseScore }) {
   const el = document.getElementById('cq-result');
   el.className = 'cq-result ' + (correct ? 'correct' : 'wrong');
   el.innerHTML = '';
@@ -395,13 +434,16 @@ export function showQuizResult({ correct, score, correctAnswer, boostApplied }) 
 
   const msgEl   = document.createElement('div');
   msgEl.className = 'cq-result-msg';
-  msgEl.textContent = correct
-    ? `정답! ${boostApplied ? '(1.5배 적용!)' : ''}`
-    : `오답! 정답: ${correctAnswer}`;
+  msgEl.textContent = correct ? '정답!' : '오답!';
 
   const scoreEl = document.createElement('div');
   scoreEl.className = 'cq-result-score';
-  scoreEl.textContent = correct ? `+${score}점` : '0점';
+  if (correct && boostApplied) {
+    // "10점×1.5배=15점" 형식으로 표시
+    scoreEl.textContent = `${baseScore}점×1.5배=${score}점`;
+  } else {
+    scoreEl.textContent = correct ? `+${score}점` : '0점';
+  }
 
   el.append(iconEl, msgEl, scoreEl);
   el.classList.remove('hidden');
@@ -428,49 +470,14 @@ function handleItemUse(itemType, myTeam, onUseItem) {
       break;
 
     case ITEM_TYPES.ERASER:
-      _eraserPending = true; // 문제 시작 후 자동 적용
-      showItemEffect('🩹 지우개 준비 완료! 문제 시작 후 오답 1개가 제거됩니다.');
+      _eraserPending = true; // 틀리면 재도전 기회 부여
+      showItemEffect('🩹 지우개 준비! 틀리면 한 번 더 도전할 수 있습니다.');
       Sound.playItemUse();
       onUseItem(itemType);
       break;
   }
 }
 
-// 지우개 아이템 처리
-function handleEraserItem() {
-  const activeType = getActiveQuestionType();
-
-  if (activeType === '객관식') {
-    // 오답 버튼 1개 회색 처리
-    const buttons = Array.from(document.querySelectorAll('.mc-option-btn:not(.erased)'));
-    // 정답 버튼은 제외하고 무작위 1개 비활성화 (정답이 어딘지 알 수 없으므로 무작위)
-    if (buttons.length > 1) {
-      const randomIdx = Math.floor(Math.random() * buttons.length);
-      buttons[randomIdx].classList.add('erased');
-      showItemEffect('🩹 지우개: 오답 1개 제거! 타이머 2초 보너스!');
-    }
-  } else if (activeType === '선잇기' && _matchingCanvas) {
-    const erased = _matchingCanvas.eraseLastWrong();
-    showItemEffect(erased
-      ? '🩹 지우개: 마지막 틀린 선 제거! 타이머 2초 보너스!'
-      : '🩹 지우개: 제거할 틀린 선이 없습니다');
-  } else {
-    showItemEffect('🩹 지우개 사용! 타이머 2초 보너스!');
-  }
-
-  // 타이머 보상: 경과 시간에서 2초 차감 (점수 유리하게)
-  _itemErasedTime -= 2; // 음수면 유리한 방향으로
-  Sound.playItemUse();
-  document.getElementById('cq-item-bar').classList.add('hidden');
-}
-
-// 현재 활성 문제 유형 반환
-function getActiveQuestionType() {
-  if (!document.getElementById('cq-mc-options').classList.contains('hidden'))   return '객관식';
-  if (!document.getElementById('cq-sa-area').classList.contains('hidden'))      return '단답형';
-  if (!document.getElementById('cq-match-area').classList.contains('hidden'))   return '선잇기';
-  return null;
-}
 
 function showItemEffect(msg) {
   const el = document.getElementById('cq-item-effect');
@@ -551,6 +558,7 @@ export function showCountdownWithItems({ teamNum, score, items, onUseItem }) {
   // 이전 캔버스 정리 및 상태 초기화
   if (_matchingCanvas) { _matchingCanvas.destroy(); _matchingCanvas = null; }
   _itemErasedTime = 0;
+  _boostActive    = false;  // 새 라운드 시작 시 아이템 상태 초기화
   _eraserPending  = false;
 
   // 아이템 버튼 영역 구성
@@ -567,8 +575,8 @@ export function showCountdownWithItems({ teamNum, score, items, onUseItem }) {
       btn.textContent = info.name;
       btn.style.margin = '4px';
       btn.addEventListener('click', () => {
-        // 버튼 즉시 비활성화 (중복 사용 방지)
-        btn.disabled = true;
+        // 아이템 1개 사용 시 나머지 아이템도 모두 비활성화 (중복 사용 방지)
+        itemBar.querySelectorAll('.btn-item').forEach(b => b.disabled = true);
         handleItemUse(type, teamNum, onUseItem);
       });
       itemBar.appendChild(btn);
