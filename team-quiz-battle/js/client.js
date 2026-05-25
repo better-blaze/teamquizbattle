@@ -540,6 +540,19 @@ export function clearBoost()     { _boostActive = false; }
 export function _activateBoost() { _boostActive = true; }
 
 // =============================================
+// 쉴드가 저주를 막았을 때 클라이언트 화면에 초록 빛 효과 2초 표시
+// =============================================
+export function showShieldBlockEffect() {
+  const existing = document.getElementById('shield-block-effect');
+  if (existing) return; // 중복 방지
+
+  const el = document.createElement('div');
+  el.id = 'shield-block-effect';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2000);
+}
+
+// =============================================
 // 카운트다운 단계: 아이템 버튼 표시
 // items: { boost: true, curse: true, eraser: true } — true = 사용 가능
 // =============================================

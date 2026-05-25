@@ -7,7 +7,8 @@ import { getDatabase, ref, set, get, update,
          onValue, serverTimestamp, remove }       from 'firebase/database';
 
 import { firebaseConfig, LS, GAME, ITEM_TYPES,
-         ITEM_INFO, MYSTERY_INFO }                from './config.js';
+         ITEM_INFO, MYSTERY_INFO,
+         DEFAULT_MYSTERY_SETTINGS }              from './config.js';
 import { loadQuestions, loadStudents }            from './data.js';
 import { autoFillMatchup, countParticipation }   from './matchup.js';
 import { calcScore, checkShortAnswer,
@@ -69,8 +70,15 @@ const R = {
   answers:    (code, q)     => ref(db, `rooms/${code}/answers/${q}`),
   answer:     (code, q, t)  => ref(db, `rooms/${code}/answers/${q}/${t}`),
   curse:      (code, t)     => ref(db, `rooms/${code}/curse/${t}`),
-  mystery:    (code, q)     => ref(db, `rooms/${code}/mystery/${q}`),
+  mystery:         (code, q) => ref(db, `rooms/${code}/mystery/${q}`),
+  mysterySettings: (code)    => ref(db, `rooms/${code}/mysterySettings`),
 };
+
+// 미스터리 설정을 Firebase에서 읽어옴 (없으면 기본값 반환)
+async function getMysterySettings(code) {
+  const snap = await get(R.mysterySettings(code));
+  return snap.exists() ? { ...DEFAULT_MYSTERY_SETTINGS, ...snap.val() } : { ...DEFAULT_MYSTERY_SETTINGS };
+}
 
 // =============================================
 // 뷰 전환
@@ -285,7 +293,8 @@ async function handleCreateRoom(code, teamCount) {
       questionStart:  null,
       fullDuration:   30,
       perfectTime:    5
-    }
+    },
+    mysterySettings: { ...DEFAULT_MYSTERY_SETTINGS }
   });
 
   state.roomCode  = code;
@@ -384,6 +393,7 @@ function enterBoardView(code) {
 
 // 상황판: 게임 상태 변화 처리
 let boardTimerInterval = null;
+let _diceConfirmShown  = false; // 주사위 확인 오버레이 중복 방지
 
 async function handleBoardGameUpdate(code, game, boardAllMatchups = {}) {
   Board.setBoardPhase(game.phase);
@@ -448,27 +458,70 @@ async function handleBoardGameUpdate(code, game, boardAllMatchups = {}) {
   }
 
   if (game.phase === 'mystery') {
+    _diceConfirmShown = false; // 새 mystery 단계마다 리셋
+
+    // 주사위 벼락 확인 핸들러 (상황판에서 교사가 예/아니오)
+    const handleDiceConfirm = async (data, confirmed) => {
+      Board.hideDiceConfirmOverlay();
+      if (!confirmed) {
+        // 아니오: 효과 없이 결과 단계로
+        await update(ref(db), {
+          [`rooms/${code}/mystery/${game.qIndex}/pendingDice`]: false,
+          [`rooms/${code}/mystery/${game.qIndex}/rejected`]:    true
+        });
+        await update(R.game(code), { phase: 'result' });
+        return;
+      }
+      // 예: 효과 적용
+      const [teamsSnap, settings] = await Promise.all([
+        get(R.teams(code)),
+        getMysterySettings(code)
+      ]);
+      const teams = teamsSnap.exists() ? teamsSnap.val() : {};
+      const { updates, message, effectData } = applyMysteryCard(
+        '주사위 벼락', teams, state.teamCount, data.choosingTeam, settings
+      );
+      const batch = { [`rooms/${code}/mystery/${game.qIndex}/pendingDice`]: false,
+                      [`rooms/${code}/mystery/${game.qIndex}/message`]:     message,
+                      [`rooms/${code}/mystery/${game.qIndex}/effectData`]:  effectData };
+      for (const [k, v] of Object.entries(updates)) batch[`rooms/${code}/${k}`] = v;
+      await update(ref(db), batch);
+      await update(R.game(code), { phase: 'result' });
+    };
+
     const mystSnap = await get(R.mystery(code, game.qIndex));
     if (mystSnap.exists()) {
       const mystData = mystSnap.val();
       Board.showBoardMysteryDeck(mystData.deck, mystData.choosingTeam);
 
-      if (mystData.chosenIndex >= 0) {
-        Board.revealBoardMysteryCard(
-          mystData.chosenIndex, mystData.result,
-          mystData.effectData, mystData.message
-        );
+      if (mystData.pendingDice && !_diceConfirmShown) {
+        _diceConfirmShown = true;
+        Board.showDiceConfirmOverlay({
+          onConfirm: () => handleDiceConfirm(mystData, true),
+          onReject:  () => handleDiceConfirm(mystData, false)
+        });
+      } else if (mystData.chosenIndex >= 0 && !mystData.pendingDice && !mystData.rejected &&
+                 !(mystData.result === '주사위 벼락' && !mystData.effectData)) {
+        Board.revealBoardMysteryCard(mystData.chosenIndex, mystData.result, mystData.effectData, mystData.message);
       }
     }
 
     const unsubMyst = onValue(R.mystery(code, game.qIndex), snap => {
       if (!snap.exists()) return;
       const data = snap.val();
-      if (data.chosenIndex >= 0) {
-        Board.revealBoardMysteryCard(
-          data.chosenIndex, data.result,
-          data.effectData, data.message
-        );
+
+      if (data.pendingDice && !_diceConfirmShown) {
+        _diceConfirmShown = true;
+        Board.showDiceConfirmOverlay({
+          onConfirm: () => handleDiceConfirm(data, true),
+          onReject:  () => handleDiceConfirm(data, false)
+        });
+      }
+
+      const shouldReveal = data.chosenIndex >= 0 && !data.pendingDice && !data.rejected &&
+        !(data.result === '주사위 벼락' && !data.effectData);
+      if (shouldReveal) {
+        Board.revealBoardMysteryCard(data.chosenIndex, data.result, data.effectData, data.message);
       }
     });
     state.unsubscribers.push(unsubMyst);
@@ -502,6 +555,17 @@ function enterAdminView(code) {
     onEndGame:           () => endGame(code),
     onResetGame:         () => resetGame(code),
     onScoreAdjust:       (teamNum, delta) => adjustScore(code, teamNum, delta)
+  });
+
+  // 미스터리 설정 저장 핸들러
+  Admin.initMysterySettings(async (newSettings) => {
+    await set(R.mysterySettings(code), newSettings);
+  });
+
+  // 미스터리 설정 리스너 (Firebase에서 변경 시 UI 반영)
+  const unsubMystSettings = onValue(R.mysterySettings(code), snap => {
+    const settings = snap.exists() ? snap.val() : DEFAULT_MYSTERY_SETTINGS;
+    Admin.updateMysterySettingsUI(settings);
   });
   // 테스트 링크 패널의 초기화 버튼이 접근하는 전역 핸들러
   window._adminResetGame = () => resetGame(code);
@@ -587,7 +651,7 @@ function enterAdminView(code) {
     });
   });
 
-  state.unsubscribers.push(unsubMeta, unsubTeams, unsubGame, unsubMatchup);
+  state.unsubscribers.push(unsubMeta, unsubTeams, unsubGame, unsubMatchup, unsubMystSettings);
 }
 
 // 관리자: 대진표 타이머
@@ -705,8 +769,16 @@ async function nextQuestion(code) {
     return;
   }
 
-  // 저주 초기화
-  await set(ref(db, `rooms/${code}/curse`), null);
+  // 저주, curseActive, statusThisQ 초기화 (문제 간 상태 리셋)
+  const curseTeamsSnap = await get(R.teams(code));
+  const clearCurseBatch = { [`rooms/${code}/curse`]: null };
+  if (curseTeamsSnap.exists()) {
+    for (const num of Object.keys(curseTeamsSnap.val())) {
+      clearCurseBatch[`rooms/${code}/teams/${num}/curseActive`]   = false;
+      clearCurseBatch[`rooms/${code}/teams/${num}/statusThisQ`]   = null; // 이번 문제 아이템 태그 초기화
+    }
+  }
+  await update(ref(db), clearCurseBatch);
 
   await update(R.game(code), {
     qIndex:        nextIdx,
@@ -840,7 +912,19 @@ function startClientGameListener(code, teamNum) {
     if (data.active) Client.showCurseWarning();
   });
 
-  state.unsubscribers.push(unsubMeta, unsubGame, unsubCurse);
+  // 내 팀 데이터 리스너 — shieldBlockedAt 감지 시 쉴드 막음 효과 표시
+  let _lastShieldBlockAt = 0;
+  const unsubMyTeam = onValue(R.team(code, teamNum), snap => {
+    if (!snap.exists()) return;
+    const data = snap.val();
+    if (data.shieldBlockedAt && data.shieldBlockedAt !== _lastShieldBlockAt &&
+        (Date.now() - data.shieldBlockedAt < 2500)) {
+      _lastShieldBlockAt = data.shieldBlockedAt;
+      Client.showShieldBlockEffect();
+    }
+  });
+
+  state.unsubscribers.push(unsubMeta, unsubGame, unsubCurse, unsubMyTeam);
 }
 
 // =============================================
@@ -1004,9 +1088,12 @@ async function showClientQuestion(code, teamNum, game, members) {
     onUseItem: () => {}  // 문제 출제 후에는 아이템 사용 불가
   });
 
-  // 저주 사용 후 Firebase 초기화
+  // 저주 사용 후 Firebase 초기화 + 상태 태그 제거
   if (curseData.active) {
-    await update(R.curse(code, teamNum), { active: false, delayMs: 0 });
+    await Promise.all([
+      update(R.curse(code, teamNum), { active: false, delayMs: 0 }),
+      update(R.team(code, teamNum),  { curseActive: false })
+    ]);
   }
 }
 
@@ -1071,12 +1158,11 @@ async function handleClientSubmit(code, teamNum, q, game, value, elapsedSec, tea
   });
 
   // 미스터리 문제 && 정답 → 가장 먼저 맞힌 모둠이 카드 선택권 획득
-  // 오답은 단순 기록만 하고 phase를 변경하지 않음 (다른 모둠이 계속 도전 가능)
-  // 동시 제출 경쟁 조건 방지: 현재 phase가 아직 'answering'인지 재확인
   if (q.isMystery && isCorrect) {
     const freshGameSnap = await get(R.game(code));
     if (freshGameSnap.val()?.phase === 'answering') {
-      const deck = createMysteryDeck();
+      const settings = await getMysterySettings(code);
+      const deck = createMysteryDeck(settings.deckCounts);
       await set(R.mystery(code, game.qIndex), {
         deck,
         choosingTeam: teamNum,
@@ -1094,43 +1180,49 @@ async function handleClientSubmit(code, teamNum, q, game, value, elapsedSec, tea
 async function handleClientItemUse(code, teamNum, itemType, teamData) {
   if (itemType === ITEM_TYPES.CURSE) {
     // 저주: 자기 모둠 제외 모든 모둠에 동시 적용
-    const teamsSnap = await get(R.teams(code));
-    const teams     = teamsSnap.exists() ? teamsSnap.val() : {};
+    const [teamsSnap, settings] = await Promise.all([
+      get(R.teams(code)),
+      getMysterySettings(code)
+    ]);
+    const teams = teamsSnap.exists() ? teamsSnap.val() : {};
 
     const batchUpdate = {};
-    batchUpdate[`rooms/${code}/teams/${teamNum}/items/curse`] = false; // 저주 아이템 사용 표시
+    batchUpdate[`rooms/${code}/teams/${teamNum}/items/curse`]          = false; // 저주 아이템 사용 표시
+    batchUpdate[`rooms/${code}/teams/${teamNum}/statusThisQ/curse`]    = true;  // 이번 문제 사용 태그
 
-    const shieldedTeams = [];
+    const minMs = settings.curseMinMs ?? 1500;
+    const maxMs = settings.curseMaxMs ?? 2500;
+
     for (const [num, targetData] of Object.entries(teams)) {
       if (parseInt(num) === teamNum) continue; // 자기 모둠 제외
 
       if (targetData?.shieldActive) {
-        // 쉴드가 있으면 저주 차단 + 쉴드 소모
-        batchUpdate[`rooms/${code}/teams/${num}/shieldActive`] = false;
-        shieldedTeams.push(`${num}모둠`);
+        // 쉴드가 있으면 저주 차단 + 쉴드 소모 + 플래시 트리거
+        batchUpdate[`rooms/${code}/teams/${num}/shieldActive`]   = false;
+        batchUpdate[`rooms/${code}/teams/${num}/shieldBlockedAt`] = Date.now();
+        // alert 없음 — 상황판/클라이언트 시각 효과로 대체
         continue;
       }
 
-      // 저주 적용 (각 모둠마다 랜덤 지연)
-      batchUpdate[`rooms/${code}/curse/${num}/active`]  = true;
-      batchUpdate[`rooms/${code}/curse/${num}/delayMs`] = 1500 + Math.floor(Math.random() * 1000);
-      batchUpdate[`rooms/${code}/curse/${num}/by`]      = teamNum;
+      // 저주 적용 (각 모둠마다 설정 범위 내 랜덤 지연)
+      const delayMs = minMs + Math.floor(Math.random() * (maxMs - minMs + 1));
+      batchUpdate[`rooms/${code}/curse/${num}/active`]      = true;
+      batchUpdate[`rooms/${code}/curse/${num}/delayMs`]     = delayMs;
+      batchUpdate[`rooms/${code}/curse/${num}/by`]          = teamNum;
+      batchUpdate[`rooms/${code}/teams/${num}/curseActive`]  = true; // 상황판 상태 태그용
     }
 
     await update(ref(db), batchUpdate);
     Sound.playCurse();
-
-    if (shieldedTeams.length > 0) {
-      alert(`🛡️ ${shieldedTeams.join(', ')}이(가) 쉴드로 저주를 막았습니다!`);
-    }
   } else {
     // 부스트: 클라이언트 내부 상태 활성화 + Firebase 사용 표시
     if (itemType === ITEM_TYPES.BOOST) {
       Client._activateBoost(); // client.js에서 export된 내부 상태 활성화 함수
     }
-    // Firebase에 아이템 사용 표시
+    // Firebase에 아이템 사용 표시 + 이번 문제 사용 태그 기록
     await update(ref(db), {
-      [`rooms/${code}/teams/${teamNum}/items/${itemType}`]: false
+      [`rooms/${code}/teams/${teamNum}/items/${itemType}`]:          false,
+      [`rooms/${code}/teams/${teamNum}/statusThisQ/${itemType}`]:    true
     });
   }
 }
@@ -1139,11 +1231,26 @@ async function handleClientItemUse(code, teamNum, itemType, teamData) {
 // 미스터리 카드 선택 처리
 // =============================================
 async function handleMysteryCardPicked(code, idx, cardName, teamNum, qIndex) {
-  const teamsSnap = await get(R.teams(code));
-  const teams     = teamsSnap.exists() ? teamsSnap.val() : {};
+  // 주사위 벼락: 상황판에서 교사 확인 후 진행
+  if (cardName === '주사위 벼락') {
+    await update(ref(db), {
+      [`rooms/${code}/mystery/${qIndex}/chosenIndex`]: idx,
+      [`rooms/${code}/mystery/${qIndex}/result`]:      cardName,
+      [`rooms/${code}/mystery/${qIndex}/pendingDice`]: true
+    });
+    Client.showWaiting('⚡ 주사위 벼락 — 상황판에서 진행 여부를 확인 중...');
+    return; // 상황판에서 예/아니오 선택 후 처리
+  }
+
+  // 그 외 카드: 즉시 효과 적용
+  const [teamsSnap, settings] = await Promise.all([
+    get(R.teams(code)),
+    getMysterySettings(code)
+  ]);
+  const teams = teamsSnap.exists() ? teamsSnap.val() : {};
 
   const { updates, message, effectData } = applyMysteryCard(
-    cardName, teams, state.teamCount, teamNum
+    cardName, teams, state.teamCount, teamNum, settings
   );
 
   const batchUpdate = {};
@@ -1153,13 +1260,11 @@ async function handleMysteryCardPicked(code, idx, cardName, teamNum, qIndex) {
   batchUpdate[`rooms/${code}/mystery/${qIndex}/chosenIndex`] = idx;
   batchUpdate[`rooms/${code}/mystery/${qIndex}/result`]      = cardName;
   batchUpdate[`rooms/${code}/mystery/${qIndex}/message`]     = message;
-  // effectData는 null일 수 없지만 안전하게 처리
   if (effectData) {
     batchUpdate[`rooms/${code}/mystery/${qIndex}/effectData`] = effectData;
   }
   await update(ref(db), batchUpdate);
 
-  // 클라이언트: 메시지 표시 후 결과 대기
   Client.showWaiting(message);
   await update(R.game(code), { phase: 'result' });
 }

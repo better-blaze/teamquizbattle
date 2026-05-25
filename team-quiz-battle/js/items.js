@@ -6,16 +6,24 @@ import { MYSTERY_DECK_TEMPLATE, MYSTERY_INFO, ITEM_TYPES } from './config.js';
 import * as Sound from './sound.js';
 
 // =============================================
-// 미스터리 카드 덱 생성 (8장 무작위 셔플)
+// 미스터리 카드 덱 생성 (장 수 설정 기반 셔플)
+// deckCounts: { '꽝': 3, '쉴드': 1, ... } — null이면 기본 템플릿 사용
 // =============================================
-export function createMysteryDeck() {
-  const deck = [...MYSTERY_DECK_TEMPLATE];
-  // 피셔-예이츠 셔플
+export function createMysteryDeck(deckCounts = null) {
+  const counts = deckCounts || {
+    '패자의 역습': 1, '주사위 벼락': 1,
+    '아이템 회복': 1, '흡수': 1, '쉴드': 1, '꽝': 3
+  };
+  const deck = [];
+  for (const [name, count] of Object.entries(counts)) {
+    for (let i = 0; i < (count || 0); i++) deck.push(name);
+  }
+  if (deck.length === 0) deck.push('꽝'); // 최소 1장 보장
   for (let i = deck.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [deck[i], deck[j]] = [deck[j], deck[i]];
   }
-  return deck; // ['꽝', '쉴드', '패자의 역습', ...]
+  return deck;
 }
 
 // =============================================
@@ -26,7 +34,7 @@ export function createMysteryDeck() {
 // choosingTeam: 카드를 선택한 모둠 번호
 // 반환: { updates: {}, message: string }
 // =============================================
-export function applyMysteryCard(card, teams, teamCount, choosingTeam) {
+export function applyMysteryCard(card, teams, teamCount, choosingTeam, settings = {}) {
   // 현재 점수 기준 순위 계산 (낮은 점수 = 낮은 등수)
   const ranked = Object.entries(teams)
     .map(([num, t]) => ({ num: parseInt(num), score: t.score || 0 }))
@@ -114,17 +122,20 @@ export function applyMysteryCard(card, teams, teamCount, choosingTeam) {
     }
 
     case '주사위 벼락': {
-      const roll   = Math.floor(Math.random() * teamCount) + 1;
+      const roll = Math.floor(Math.random() * teamCount) + 1;
       const target = teams[roll];
-      const hit    = !!target;
+      const hit = !!target;
+      // 기준 감점 n에서 n-1 ~ n+1 무작위
+      const base = settings?.dicePenalty ?? 10;
+      const penalty = Math.max(1, base - 1 + Math.floor(Math.random() * 3));
       if (hit) {
         const current = target.score || 0;
-        updates[`teams/${roll}/score`] = Math.max(0, current - 10);
-        message = `주사위 결과: ${roll}모둠! -10점 벼락 ⚡🎲`;
+        updates[`teams/${roll}/score`] = Math.max(0, current - penalty);
+        message = `주사위 결과: ${roll}모둠! -${penalty}점 벼락 ⚡🎲`;
       } else {
         message = `주사위 결과: ${roll} (해당 모둠 없음 — 무효!) 🎲`;
       }
-      effectData = { type: '주사위벼락', roll, targetTeam: roll, penalty: 10, hit };
+      effectData = { type: '주사위벼락', roll, targetTeam: roll, penalty, hit };
       Sound.playDice();
       break;
     }

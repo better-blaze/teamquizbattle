@@ -231,6 +231,54 @@ export function enableCountdownButton() {
 }
 
 // =============================================
+// 미스터리 카드 세부 설정
+// =============================================
+export function initMysterySettings(onSave) {
+  const btn = document.getElementById('btn-save-mystery-settings');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const settings = _readMysterySettingsUI();
+    onSave(settings);
+    btn.textContent = '✅ 저장됨';
+    setTimeout(() => { btn.textContent = '설정 저장'; }, 1500);
+  });
+}
+
+export function updateMysterySettingsUI(settings) {
+  _setVal('mystery-dice-penalty', settings.dicePenalty ?? 10);
+  _setVal('mystery-curse-min',    (settings.curseMinMs ?? 1500) / 1000);
+  _setVal('mystery-curse-max',    (settings.curseMaxMs ?? 2500) / 1000);
+  const dc = settings.deckCounts || {};
+  _setVal('dc-loser-revenge', dc['패자의 역습'] ?? 1);
+  _setVal('dc-dice',          dc['주사위 벼락'] ?? 1);
+  _setVal('dc-item-recover',  dc['아이템 회복'] ?? 1);
+  _setVal('dc-absorb',        dc['흡수']        ?? 1);
+  _setVal('dc-shield',        dc['쉴드']         ?? 1);
+  _setVal('dc-nothing',       dc['꽝']           ?? 3);
+}
+
+function _setVal(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.value = val;
+}
+
+function _readMysterySettingsUI() {
+  const dicePenalty = Math.max(1, parseInt(document.getElementById('mystery-dice-penalty')?.value) || 10);
+  let curseMin = Math.round((parseFloat(document.getElementById('mystery-curse-min')?.value) || 1.5) * 1000);
+  let curseMax = Math.round((parseFloat(document.getElementById('mystery-curse-max')?.value) || 2.5) * 1000);
+  if (curseMin > curseMax) [curseMin, curseMax] = [curseMax, curseMin];
+  const deckCounts = {
+    '패자의 역습': Math.max(0, parseInt(document.getElementById('dc-loser-revenge')?.value) || 0),
+    '주사위 벼락': Math.max(0, parseInt(document.getElementById('dc-dice')?.value)          || 0),
+    '아이템 회복': Math.max(0, parseInt(document.getElementById('dc-item-recover')?.value)  || 0),
+    '흡수':        Math.max(0, parseInt(document.getElementById('dc-absorb')?.value)         || 0),
+    '쉴드':        Math.max(0, parseInt(document.getElementById('dc-shield')?.value)         || 0),
+    '꽝':          Math.max(0, parseInt(document.getElementById('dc-nothing')?.value)        || 0)
+  };
+  return { dicePenalty, curseMinMs: curseMin, curseMaxMs: curseMax, deckCounts };
+}
+
+// =============================================
 // 테스트용 링크 패널 표시
 // 방 생성 직후 호출 — 각 역할별 URL을 복사할 수 있게 제공
 // =============================================

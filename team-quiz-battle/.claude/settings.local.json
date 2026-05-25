@@ -5,7 +5,9 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "WebFetch(domain:docs.google.com)",
-      "WebFetch(domain:doc-0c-34-sheets.googleusercontent.com)"
+      "WebFetch(domain:doc-0c-34-sheets.googleusercontent.com)",
+      "Bash(Get-Content \"C:\\\\Users\\\\xo\\\\OneDrive - 대전관저초등학교\\\\EVLTN\\\\vibesrfr\\\\team-quiz-battle\\\\css\\\\style.css\")",
+      "Bash(Select-Object -Last 20)"
     ]
   }
 }

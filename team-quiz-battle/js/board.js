@@ -3,7 +3,7 @@
 // =============================================
 
 import * as Sound from './sound.js';
-import { ITEM_INFO, MYSTERY_INFO } from './config.js';
+import { MYSTERY_INFO } from './config.js';
 
 // =============================================
 // 모둠 패널 렌더링 (상단 30%)
@@ -20,6 +20,11 @@ export function renderBoardTeams(teams) {
     panel.className = 'board-team-panel' + (t.connected ? ' connected' : '');
     panel.id = `board-team-${num}`;
 
+    // 쉴드 막음 플래시 효과 (shieldBlockedAt 기준 2.5초 이내)
+    if (t.shieldBlockedAt && (Date.now() - t.shieldBlockedAt < 2500)) {
+      panel.classList.add('shield-block-flash');
+    }
+
     // 접속 상태 표시
     const connDot = document.createElement('div');
     connDot.className = 'board-team-conn' + (t.connected ? ' online' : '');
@@ -34,15 +39,25 @@ export function renderBoardTeams(teams) {
     scoreEl.className = 'board-team-score';
     scoreEl.innerHTML = `${t.score || 0}<span>점</span>`;
 
-    // 아이템 (새 구조: items 객체)
-    const itemEl = document.createElement('div');
-    const availItems = Object.entries(t.items || {}).filter(([, v]) => v).map(([k]) => ITEM_INFO[k]?.name || k);
-    const hasItem = availItems.length > 0;
-    itemEl.className = 'board-team-item' + (hasItem ? ' has-item' : '');
-    itemEl.textContent = t.shieldActive ? '🛡️ 쉴드 ' + (hasItem ? `+${availItems.join(' ')}` : '') :
-      hasItem ? availItems.join(' / ') : '아이템 없음';
+    // 상태 태그 (아이템 개수 대신 사용한 아이템/적용 효과 표시)
+    const tagsEl = document.createElement('div');
+    tagsEl.className = 'board-team-tags';
 
-    panel.append(connDot, nameEl, scoreEl, itemEl);
+    const tags = [];
+    if (t.curseActive)             tags.push({ label: '저주당함',   cls: 'tag-curse-on' });
+    if (t.statusThisQ?.curse)      tags.push({ label: '저주',       cls: 'tag-curse'    });
+    if (t.shieldActive)            tags.push({ label: '쉴드중',     cls: 'tag-shield'   });
+    if (t.statusThisQ?.boost)      tags.push({ label: '1.5배 적용', cls: 'tag-boost'    });
+    if (t.statusThisQ?.eraser)     tags.push({ label: '지우개',     cls: 'tag-eraser'   });
+
+    tags.forEach(({ label, cls }) => {
+      const tag = document.createElement('span');
+      tag.className = 'board-status-tag ' + cls;
+      tag.textContent = label;
+      tagsEl.appendChild(tag);
+    });
+
+    panel.append(connDot, nameEl, scoreEl, tagsEl);
     container.appendChild(panel);
   }
 }
@@ -478,6 +493,68 @@ function _buildRevengEffect(container, effectData) {
   });
 
   container.appendChild(listEl);
+}
+
+// =============================================
+// 주사위 벼락 진행 확인 오버레이 (상황판에서 교사가 예/아니오 선택)
+// =============================================
+export function showDiceConfirmOverlay({ onConfirm, onReject }) {
+  const existing = document.getElementById('dice-confirm-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'dice-confirm-overlay';
+  overlay.style.cssText = `
+    position:absolute; inset:0; z-index:60;
+    background:rgba(0,0,0,.92);
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:20px;
+    animation:fadeIn .3s;
+  `;
+
+  const iconEl = document.createElement('div');
+  iconEl.style.cssText = 'font-size:5rem;animation:diceRoll .5s linear infinite;';
+  iconEl.textContent = '🎲';
+
+  const titleEl = document.createElement('div');
+  titleEl.style.cssText = 'font-size:2.4rem;font-weight:900;color:#fbbf24;';
+  titleEl.textContent = '⚡ 주사위 벼락';
+
+  const descEl = document.createElement('div');
+  descEl.style.cssText = 'font-size:1.1rem;color:#94a3b8;';
+  descEl.textContent = '주사위를 굴려 나온 모둠에게 감점이 부여됩니다.';
+
+  const questionEl = document.createElement('div');
+  questionEl.style.cssText = 'font-size:1.7rem;font-weight:700;color:#f1f5f9;margin-top:4px;';
+  questionEl.textContent = '진행하시겠습니까?';
+
+  const btnWrap = document.createElement('div');
+  btnWrap.style.cssText = 'display:flex;gap:24px;margin-top:8px;';
+
+  const yesBtn = document.createElement('button');
+  yesBtn.textContent = '예';
+  yesBtn.style.cssText = `
+    padding:18px 52px; font-size:1.4rem; font-weight:900;
+    background:#22c55e; color:#fff; border:none; border-radius:14px; cursor:pointer;
+  `;
+  yesBtn.addEventListener('click', () => { overlay.remove(); onConfirm(); });
+
+  const noBtn = document.createElement('button');
+  noBtn.textContent = '아니오';
+  noBtn.style.cssText = `
+    padding:18px 52px; font-size:1.4rem; font-weight:900;
+    background:#ef4444; color:#fff; border:none; border-radius:14px; cursor:pointer;
+  `;
+  noBtn.addEventListener('click', () => { overlay.remove(); onReject(); });
+
+  btnWrap.append(yesBtn, noBtn);
+  overlay.append(iconEl, titleEl, descEl, questionEl, btnWrap);
+  document.getElementById('view-board').appendChild(overlay);
+}
+
+export function hideDiceConfirmOverlay() {
+  const el = document.getElementById('dice-confirm-overlay');
+  if (el) el.remove();
 }
 
 export function hideBoardMysteryArea() {

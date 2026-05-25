@@ -79,6 +79,21 @@ export const MYSTERY_INFO = {
   '꽝':          { emoji: '💨', desc: '아무 효과 없음' }
 };
 
+// 미스터리 카드 기본 세부 설정
+export const DEFAULT_MYSTERY_SETTINGS = {
+  dicePenalty:  10,      // 주사위 벼락 기준 감점
+  curseMinMs:   1500,    // 저주 최소 지연(ms)
+  curseMaxMs:   2500,    // 저주 최대 지연(ms)
+  deckCounts: {          // 덱 내 각 카드 장 수
+    '패자의 역습': 1,
+    '주사위 벼락': 1,
+    '아이템 회복': 1,
+    '흡수':        1,
+    '쉴드':        1,
+    '꽝':          3
+  }
+};
+
 // localStorage 키
 export const LS = {
   ROOM:        'qb_room',         // 방 코드
