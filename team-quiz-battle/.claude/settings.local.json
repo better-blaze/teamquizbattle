@@ -7,7 +7,16 @@
       "WebFetch(domain:docs.google.com)",
       "WebFetch(domain:doc-0c-34-sheets.googleusercontent.com)",
       "Bash(Get-Content \"C:\\\\Users\\\\xo\\\\OneDrive - 대전관저초등학교\\\\EVLTN\\\\vibesrfr\\\\team-quiz-battle\\\\css\\\\style.css\")",
-      "Bash(Select-Object -Last 20)"
+      "Bash(Select-Object -Last 20)",
+      "Bash(gh auth *)",
+      "Bash(gh --version)",
+      "PowerShell(gh *)",
+      "Bash(git remote *)",
+      "Bash(mkdir -p \"C:\\\\Users\\\\xo\\\\OneDrive - 대전관저초등학교\\\\EVLTN\\\\vibesrfr\\\\quiz-battle-royale\\\\js\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\xo\\\\OneDrive - 대전관저초등학교\\\\EVLTN\\\\vibesrfr\\\\quiz-battle-royale\\\\css\")",
+      "Bash(python -m http.server 3456)",
+      "PowerShell(Start-Process python -ArgumentList \"-m http.server 3456\" -WorkingDirectory \"C:\\\\Users\\\\xo\\\\OneDrive - 대전관저초등학교\\\\EVLTN\\\\vibesrfr\\\\quiz-battle-royale\" -WindowStyle Hidden; Start-Sleep -Seconds 2; try { $r = Invoke-WebRequest -Uri \"http://localhost:3456\" -UseBasicParsing -TimeoutSec 3; \"서버 정상 응답: $\\($r.StatusCode\\)\" } catch { \"오류: $_\" })",
+      "PowerShell(Start-Process \"http://localhost:3456\")"
     ]
   }
 }
