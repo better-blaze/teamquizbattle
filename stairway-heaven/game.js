@@ -16,6 +16,11 @@ const CFG = {
   FALL_LOCK_MS  : 600,   // 추락 직후 입력 잠금 시간 (ms)
   DRIFT_SECONDS : 5,     // 착지 허용 시간 (초)
   STEPS_PER_M   : 10,
+  LAND_TOL      : 12,    // 착지 허용 오차 (px) — 발판 윗면에서 아래로 이 범위 안에만 착지 인정
+  WHIP_N_START   : 2000, // 채찍 게이지 1 증가까지 허용 무입력 시간 (ms) — 0m 기준
+  WHIP_N_END     : 200,  // 채찍 허용 시간 최솟값 (ms) — 500m 이상
+  WHIP_HEIGHT_MAX: 500,  // n이 최솟값에 도달하는 높이 (m)
+  WHIP_MAX       : 10,   // 채찍 게이지 최댓값 (도달 시 랜덤 키 발동)
 };
 
 // =============================================
@@ -30,6 +35,14 @@ function createRNG(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 0x100000000;
   };
+}
+
+// 현재 높이(m)에 따른 채찍 무입력 허용 간격 (ms)
+// 0m → 2000ms, 500m → 200ms 선형 감소, 200ms 하한
+function getWhipInterval() {
+  const height = state.player.stepIndex / CFG.STEPS_PER_M;
+  const t = Math.min(height / CFG.WHIP_HEIGHT_MAX, 1);
+  return CFG.WHIP_N_START - (CFG.WHIP_N_START - CFG.WHIP_N_END) * t;
 }
 
 // 0=좌1칸  1=우1칸  2=좌점프  3=우점프
@@ -58,14 +71,18 @@ const state = {
   map   : generateMap(CFG.SEED, CFG.MAP_LEN),
   steps : [],
   player: {
-    stepIndex     : 0,
-    phase         : 'normal',
-    fallFromY     : 0,   // 추락 시작 world-y (발판 y)
-    fallLockEndsAt: 0,   // 추락 잠금 종료 만료 시각
-    driftX        : 0,   // 표류 x world 좌표
-    driftY        : 0,   // 표류 시작 발바닥 y
-    driftStartAt  : 0,   // 표류 시작 시각
-    driftEndsAt   : 0,   // 표류 종료 만료 시각 (5초 후)
+    stepIndex         : 0,
+    phase             : 'normal',
+    fallFromY         : 0,   // 추락 시작 world-y (발판 y)
+    fallFromStepIndex : -1,  // 추락 시작 발판 인덱스 (착지 즉시 복귀 방지)
+    fallLockEndsAt    : 0,   // 추락 잠금 종료 만료 시각
+    driftX            : 0,   // 표류 x world 좌표
+    driftY            : 0,   // 표류 시작 발바닥 y
+    driftStartAt      : 0,   // 표류 시작 시각
+    driftEndsAt       : 0,   // 표류 종료 만료 시각 (5초 후)
+    whipGauge         : 0,   // 채찍 게이지 (0 ~ WHIP_MAX)
+    whipTickAt        : 0,   // 다음 게이지 증가 만료 시각 (0 = 미초기화)
+    whipFlashAt       : 0,   // 채찍 발동 플래시 시작 시각
   },
   camera: { y: 0 },
 };
@@ -111,9 +128,13 @@ function handleInput(code) {
 
   // 게임오버: 아무 입력이나 재시작
   if (player.phase === 'gameover') {
-    player.phase     = 'normal';
-    player.stepIndex = 0;
-    state.camera.y   = 0;
+    player.phase             = 'normal';
+    player.stepIndex         = 0;
+    player.fallFromStepIndex = -1;
+    player.whipGauge         = 0;
+    player.whipTickAt        = 0;
+    player.whipFlashAt       = 0;
+    state.camera.y           = 0;
     return;
   }
 
@@ -127,14 +148,19 @@ function handleInput(code) {
   if (player.phase !== 'normal') return;
   if (player.stepIndex >= steps.length - 1) return;
 
+  // 키 누름: 채찍 게이지 -1, 무입력 타이머 리셋
+  player.whipGauge  = Math.max(0, player.whipGauge - 1);
+  player.whipTickAt = Date.now() + getWhipInterval();
+
   const expected = map[player.stepIndex];
   if (code === expected) {
     player.stepIndex++;
   } else {
     // 오답: 추락 잠금 시작
-    player.phase          = 'falling_locked';
-    player.fallFromY      = steps[player.stepIndex].y;
-    player.fallLockEndsAt = Date.now() + CFG.FALL_LOCK_MS;
+    player.phase              = 'falling_locked';
+    player.fallFromY          = steps[player.stepIndex].y;
+    player.fallFromStepIndex  = player.stepIndex; // 추락 시작 발판 기록
+    player.fallLockEndsAt     = Date.now() + CFG.FALL_LOCK_MS;
   }
 }
 
@@ -269,6 +295,40 @@ function render() {
   ctx.fillRect(px - 10, top + 8, 6, 6);
   ctx.fillRect(px + 4,  top + 8, 6, 6);
 
+  // --- 채찍 게이지 바 (좌상단) ---
+  if (player.phase === 'normal' || player.phase === 'falling_locked') {
+    const gx = 16, gy = 16;
+    const segW = 16, segH = 20, segGap = 3;
+
+    ctx.font         = 'bold 12px monospace';
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle    = 'rgba(255,255,255,0.5)';
+    ctx.fillText('채찍 게이지', gx, gy);
+
+    // 현재 간격 표시 (작게)
+    const intervalSec = (getWhipInterval() / 1000).toFixed(1);
+    ctx.font      = '11px monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillText(`(${intervalSec}s)`, gx + 80, gy + 1);
+
+    const barY = gy + 18;
+    for (let i = 0; i < CFG.WHIP_MAX; i++) {
+      const filled = i < player.whipGauge;
+      const bx = gx + i * (segW + segGap);
+      // 빈칸 배경
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.fillRect(bx, barY, segW, segH);
+      // 채워진 칸
+      if (filled) {
+        const danger = player.whipGauge >= 8;
+        const warm   = player.whipGauge >= 5;
+        ctx.fillStyle = danger ? '#ff4757' : (warm ? '#ffb347' : '#4ae0a0');
+        ctx.fillRect(bx, barY, segW, segH);
+      }
+    }
+  }
+
   // HUD: 높이 표시 (우상단)
   const height = (player.stepIndex / CFG.STEPS_PER_M).toFixed(1);
   ctx.font         = 'bold 30px monospace';
@@ -328,6 +388,23 @@ function render() {
     ctx.fillRect(16, 52, barW * pct, 8);
   }
 
+  // --- 채찍 발동 플래시 ---
+  if (player.whipFlashAt > 0) {
+    const elapsed = Date.now() - player.whipFlashAt;
+    if (elapsed < 500) {
+      const progress = elapsed / 500;
+      ctx.fillStyle = `rgba(255, 200, 0, ${(1 - progress) * 0.35})`;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha  = 1 - progress;
+      ctx.font         = 'bold 64px sans-serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle    = '#ffd700';
+      ctx.fillText('채찍!', W / 2, H / 2 - 60);
+      ctx.globalAlpha  = 1;
+    }
+  }
+
   // --- 클리어 ---
   if (player.phase === 'normal' && player.stepIndex === steps.length - 1) {
     ctx.font         = 'bold 52px sans-serif';
@@ -378,12 +455,17 @@ function loop() {
       const step     = steps[i];
       const surfaceY = step.y - CFG.STEP_TOP; // 발판 윗면 y
 
-      // 발바닥이 발판 윗면 범위 안에 있고, x가 겹치면 착지
-      if (feetY < surfaceY || feetY > surfaceY + CFG.STEP_GAP) continue;
+      // 추락 시작 발판은 착지 대상에서 제외 — 표류 시작 직후 같은 발판에 즉시 복귀하는 버그 방지
+      if (i === player.fallFromStepIndex) continue;
+
+      // 발바닥이 발판 윗면(±LAND_TOL px) 에 정확히 닿을 때만 착지 인정
+      if (feetY < surfaceY || feetY > surfaceY + CFG.LAND_TOL) continue;
       if (Math.abs(player.driftX - step.x) >= (CFG.STEP_W + CFG.PLAYER_W) / 2) continue;
 
-      player.phase     = 'normal';
-      player.stepIndex = i;
+      player.phase              = 'normal';
+      player.stepIndex          = i;
+      player.fallFromStepIndex  = -1;
+      player.whipTickAt         = now + getWhipInterval(); // 착지 후 채찍 타이머 리셋
       break;
     }
 
@@ -392,6 +474,24 @@ function loop() {
       const s2       = (now - player.driftStartAt) / 1000;
       player.driftY  = player.driftY + 50 * s2 + 15 * s2 * s2; // 최종 위치 저장
       player.phase   = 'gameover';
+    }
+  }
+
+  // 채찍 게이지: normal 상태에서만 무입력 시간 누적
+  if (player.phase === 'normal') {
+    // 최초 초기화 (게임 시작 또는 재시작 직후)
+    if (player.whipTickAt === 0) player.whipTickAt = now + getWhipInterval();
+
+    if (now >= player.whipTickAt) {
+      player.whipGauge++;
+      player.whipTickAt = now + getWhipInterval();
+
+      // 게이지 최대 도달: 랜덤 키 강제 발동 후 게이지 초기화
+      if (player.whipGauge >= CFG.WHIP_MAX) {
+        player.whipGauge   = 0;
+        player.whipFlashAt = now;
+        handleInput(Math.floor(Math.random() * 4));
+      }
     }
   }
 
