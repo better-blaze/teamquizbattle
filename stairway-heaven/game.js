@@ -17,11 +17,17 @@ const CFG = {
   DRIFT_SECONDS : 5,     // 착지 허용 시간 (초)
   STEPS_PER_M   : 10,
   LAND_TOL      : 12,    // 착지 허용 오차 (px) — 발판 윗면에서 아래로 이 범위 안에만 착지 인정
-  WHIP_N_START   : 2000, // 채찍 게이지 1 증가까지 허용 무입력 시간 (ms) — 0m 기준
-  WHIP_N_END     : 200,  // 채찍 허용 시간 최솟값 (ms) — 500m 이상
-  WHIP_HEIGHT_MAX: 500,  // n이 최솟값에 도달하는 높이 (m)
-  WHIP_MAX       : 10,   // 채찍 게이지 최댓값 (도달 시 랜덤 키 발동)
+  WHIP_N_START    : 2000, // 채찍 게이지 1 증가까지 허용 무입력 시간 (ms) — 0m 기준
+  WHIP_N_END      : 200,  // 채찍 허용 시간 최솟값 (ms) — 500m 이상
+  WHIP_HEIGHT_MAX : 500,  // n이 최솟값에 도달하는 높이 (m)
+  WHIP_MAX        : 10,   // 채찍 게이지 최댓값 (도달 시 랜덤 키 발동)
+  QUIZ_INTERVAL_MS: 30000, // 퀴즈 출제 간격 (ms)
+  QUIZ_BATCH_SIZE : 3,     // 한 번에 출제하는 문제 수
+  QUIZ_FREEZE_MS  : 3000,  // 0개 정답 시 정지 시간 (ms)
 };
+
+// 엑셀 컬럼 인덱스 (quiz-battle-royale와 동일 양식)
+const Q_COL = { NUM: 0, TYPE: 1, CONTENT: 2, IMAGE: 3, ANSWER: 4, OPT_START: 5 };
 
 // =============================================
 // 난이도 구간 파라미터 — 숫자만 바꾸면 난이도 조정 가능
@@ -154,6 +160,16 @@ const state = {
     whipFlashAt       : 0,   // 채찍 발동 플래시 시작 시각
   },
   camera: { x: 0, y: 0 },
+  quiz: {
+    questions   : [],   // 파싱된 전체 문제 배열
+    queue       : [],   // 남은 출제 큐 (셔플 순서)
+    nextAt      : 0,    // 다음 퀴즈 만료 시각 (0 = 비활성)
+    active      : false,
+    batch       : [],   // 현재 출제된 문제들
+    batchIdx    : 0,    // 현재 문제 인덱스
+    correctCount: 0,    // 현재 배치 정답 수
+    freezeUntil : 0,    // 0개 정답 패널티 정지 만료 시각
+  },
 };
 state.steps = buildSteps(state.map);
 
@@ -195,6 +211,10 @@ function getPlayerWorldX() {
 function handleInput(code) {
   const { player, steps, map } = state;
 
+  // 퀴즈 진행 중 또는 0점 패널티 정지 중 — 모든 입력 차단
+  if (state.quiz.active) return;
+  if (state.quiz.freezeUntil > Date.now()) return;
+
   // 게임오버: 아무 입력이나 재시작
   if (player.phase === 'gameover') {
     player.phase             = 'normal';
@@ -205,6 +225,10 @@ function handleInput(code) {
     player.whipFlashAt       = 0;
     state.camera.x           = 0;
     state.camera.y           = 0;
+    state.quiz.active        = false;
+    state.quiz.freezeUntil   = 0;
+    state.quiz.nextAt        = state.quiz.questions.length > 0
+      ? Date.now() + CFG.QUIZ_INTERVAL_MS : 0;
     return;
   }
 
@@ -475,6 +499,16 @@ function render() {
     }
   }
 
+  // --- 퀴즈 타이머 바 (화면 상단 4px) ---
+  if (!state.quiz.active && state.quiz.questions.length > 0 && state.quiz.nextAt > 0) {
+    const rem = Math.max(state.quiz.nextAt - Date.now(), 0);
+    const pct = rem / CFG.QUIZ_INTERVAL_MS;
+    ctx.fillStyle = 'rgba(255,215,0,0.12)';
+    ctx.fillRect(0, 0, W, 4);
+    ctx.fillStyle = pct < 0.2 ? '#ff4757' : '#ffd700';
+    ctx.fillRect(0, 0, W * pct, 4);
+  }
+
   // --- 클리어 ---
   if (player.phase === 'normal' && player.stepIndex === steps.length - 1) {
     ctx.font         = 'bold 52px sans-serif';
@@ -482,6 +516,22 @@ function render() {
     ctx.textBaseline = 'middle';
     ctx.fillStyle    = '#ffd700';
     ctx.fillText('천국 도착!', W / 2, H / 2);
+  }
+
+  // --- 퀴즈 0점 패널티 정지 ---
+  const renderNow = Date.now();
+  if (state.quiz.freezeUntil > renderNow) {
+    const rem = ((state.quiz.freezeUntil - renderNow) / 1000).toFixed(1);
+    ctx.fillStyle = 'rgba(200, 0, 0, 0.32)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.font         = 'bold 52px sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = '#ff4757';
+    ctx.fillText(`${rem}초 정지`, W / 2, H / 2 - 24);
+    ctx.font      = '18px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('0개 정답 — 잠시 멈춤!', W / 2, H / 2 + 24);
   }
 
   // --- 게임오버 ---
@@ -547,8 +597,21 @@ function loop() {
     }
   }
 
-  // 채찍 게이지: normal 상태에서만 무입력 시간 누적
-  if (player.phase === 'normal') {
+  // 퀴즈 0점 패널티 정지 종료
+  if (state.quiz.freezeUntil > 0 && now >= state.quiz.freezeUntil) {
+    state.quiz.freezeUntil = 0;
+    state.quiz.nextAt      = now + CFG.QUIZ_INTERVAL_MS;
+  }
+
+  // 퀴즈 타이머: 문제가 있고 normal 상태에서만 발동
+  if (!state.quiz.active && state.quiz.questions.length > 0 &&
+      state.quiz.freezeUntil === 0 && state.quiz.nextAt > 0 &&
+      player.phase === 'normal' && now >= state.quiz.nextAt) {
+    startQuiz();
+  }
+
+  // 채찍 게이지: normal 상태이고 퀴즈/정지 중이 아닐 때만 누적
+  if (player.phase === 'normal' && !state.quiz.active && state.quiz.freezeUntil === 0) {
     // 최초 초기화 (게임 시작 또는 재시작 직후)
     if (player.whipTickAt === 0) player.whipTickAt = now + getWhipInterval();
 
@@ -574,3 +637,319 @@ function loop() {
 }
 
 loop();
+
+// =============================================
+// 퀴즈 — 엑셀 파싱 (quiz-battle-royale data.js 동일 로직)
+// =============================================
+
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// .xlsx File 객체를 받아 문제 배열을 반환하는 Promise
+function parseXlsx(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb   = window.XLSX.read(data, { type: 'array' });
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        const questions = rows.slice(1)
+          .filter(r => String(r[Q_COL.NUM] || '').trim() !== '')
+          .map(r => buildQuestion(r));
+        resolve(questions);
+      } catch (err) {
+        reject(new Error('엑셀 파싱 오류: ' + err.message));
+      }
+    };
+    reader.onerror = () => reject(new Error('파일 읽기 실패'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// 행 배열 하나를 문제 객체로 변환
+function buildQuestion(r) {
+  const type      = String(r[Q_COL.TYPE]   || '').trim();
+  const answerRaw = String(r[Q_COL.ANSWER] || '').trim();
+  const choices   = [];
+  for (let i = Q_COL.OPT_START; i < r.length; i++) {
+    const c = String(r[i] || '').trim();
+    if (c) choices.push(c);
+  }
+  const q = {
+    num     : String(r[Q_COL.NUM]     || '').trim(),
+    type,
+    content : String(r[Q_COL.CONTENT] || '').trim(),
+    imageUrl: String(r[Q_COL.IMAGE]   || '').trim(),
+    rawAnswer: answerRaw,
+    choices,
+  };
+  switch (type) {
+    case '단답형':
+      q.answers = answerRaw.split('|').map(a => a.trim());
+      break;
+    case '선잇기':
+      q.matchPairs = answerRaw.split('|').map(seg => {
+        const [l, rv] = seg.split(':').map(s => s.trim());
+        return { left: l, right: rv };
+      }).filter(p => p.left && p.right);
+      break;
+    case '복수정답':
+      q.correctIndices = answerRaw.split(',')
+        .map(s => parseInt(s.trim()) - 1).filter(n => !isNaN(n));
+      break;
+    case '순서':
+      q.correctOrder = answerRaw.split(',')
+        .map(s => parseInt(s.trim()) - 1).filter(n => !isNaN(n));
+      break;
+    case '객관식':
+      q.correctChoiceText = answerRaw;
+      break;
+  }
+  return q;
+}
+
+// =============================================
+// 퀴즈 — 게임 흐름 제어
+// =============================================
+
+// 퀴즈 UI 내부 상태 (선택값 임시 보관)
+const quizUI = { selected: null, multiSelected: new Set(), orderSelected: [] };
+
+function normalize(s) {
+  return String(s).replace(/\s+/g, '').toLowerCase();
+}
+
+function startQuiz() {
+  const { quiz } = state;
+  // 큐가 부족하면 전체 문제를 다시 셔플해서 보충
+  if (quiz.queue.length < CFG.QUIZ_BATCH_SIZE) {
+    quiz.queue.push(...shuffleArray([...quiz.questions]));
+  }
+  quiz.batch        = quiz.queue.splice(0, CFG.QUIZ_BATCH_SIZE);
+  quiz.batchIdx     = 0;
+  quiz.correctCount = 0;
+  quiz.active       = true;
+  showQuestion(quiz.batch[0]);
+  document.getElementById('quizOverlay').classList.remove('hidden');
+}
+
+function showQuestion(q) {
+  const { batchIdx, batch } = state.quiz;
+  document.getElementById('quizProgress').textContent = `문제 ${batchIdx + 1} / ${batch.length}`;
+  document.getElementById('quizType').textContent     = q.type;
+  document.getElementById('quizContent').textContent  = q.content;
+
+  const imgWrap = document.getElementById('quizImageWrap');
+  if (q.imageUrl) {
+    document.getElementById('quizImg').src = q.imageUrl;
+    imgWrap.classList.remove('hidden');
+  } else {
+    imgWrap.classList.add('hidden');
+  }
+
+  // UI 상태 초기화
+  quizUI.selected      = null;
+  quizUI.multiSelected = new Set();
+  quizUI.orderSelected = [];
+
+  const area = document.getElementById('quizAnswerArea');
+  area.innerHTML = '';
+  document.getElementById('quizFeedback').textContent = '';
+  const submitBtn = document.getElementById('quizSubmit');
+  submitBtn.disabled = false;
+  submitBtn.textContent = '제출';
+
+  if (q.type === '단답형') {
+    const input = document.createElement('input');
+    input.type        = 'text';
+    input.placeholder = '정답을 입력하세요';
+    input.onkeydown   = (e) => { if (e.key === 'Enter') submitQuizAnswer(); };
+    area.appendChild(input);
+    setTimeout(() => input.focus(), 50);
+
+  } else if (q.type === '객관식') {
+    q.choices.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className   = 'choiceBtn';
+      btn.textContent = `${i + 1}. ${c}`;
+      btn.onclick = () => {
+        area.querySelectorAll('.choiceBtn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        quizUI.selected = i;
+      };
+      area.appendChild(btn);
+    });
+
+  } else if (q.type === '복수정답') {
+    const hint = document.createElement('p');
+    hint.className   = 'quizHint';
+    hint.textContent = '정답을 모두 선택하세요';
+    area.appendChild(hint);
+    q.choices.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className   = 'choiceBtn';
+      btn.textContent = `${i + 1}. ${c}`;
+      btn.onclick = () => {
+        btn.classList.toggle('selected');
+        if (quizUI.multiSelected.has(i)) quizUI.multiSelected.delete(i);
+        else quizUI.multiSelected.add(i);
+      };
+      area.appendChild(btn);
+    });
+
+  } else if (q.type === '순서') {
+    const hint = document.createElement('p');
+    hint.className   = 'quizHint';
+    hint.textContent = '올바른 순서대로 클릭하세요';
+    area.appendChild(hint);
+    q.choices.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className       = 'choiceBtn';
+      btn.textContent     = c;
+      btn.dataset.origIdx = i;
+      btn.onclick = () => {
+        if (quizUI.orderSelected.includes(i)) return;
+        quizUI.orderSelected.push(i);
+        btn.classList.add('ordered');
+        btn.textContent = `${quizUI.orderSelected.length}. ${c}`;
+        // 모두 선택되면 자동 제출
+        if (quizUI.orderSelected.length === q.choices.length) submitQuizAnswer();
+      };
+      area.appendChild(btn);
+    });
+
+  } else if (q.type === '선잇기') {
+    const rights = q.matchPairs.map(p => p.right);
+    q.matchPairs.forEach(pair => {
+      const row = document.createElement('div');
+      row.className = 'matchRow';
+      const leftEl = document.createElement('span');
+      leftEl.className   = 'matchLeft';
+      leftEl.textContent = pair.left;
+      const sel = document.createElement('select');
+      sel.className      = 'matchSelect';
+      sel.dataset.left   = pair.left;
+      const defOpt = document.createElement('option');
+      defOpt.value       = '';
+      defOpt.textContent = '-- 선택 --';
+      sel.appendChild(defOpt);
+      rights.forEach(rv => {
+        const opt = document.createElement('option');
+        opt.value = rv; opt.textContent = rv;
+        sel.appendChild(opt);
+      });
+      row.appendChild(leftEl);
+      row.appendChild(sel);
+      area.appendChild(row);
+    });
+  }
+}
+
+function submitQuizAnswer() {
+  const { quiz } = state;
+  const q = quiz.batch[quiz.batchIdx];
+  const area = document.getElementById('quizAnswerArea');
+  let correct = false;
+
+  switch (q.type) {
+    case '단답형': {
+      const val = (area.querySelector('input') || {}).value || '';
+      correct = q.answers.some(a => normalize(a) === normalize(val));
+      break;
+    }
+    case '객관식':
+      correct = quizUI.selected !== null &&
+        normalize(q.choices[quizUI.selected]) === normalize(q.correctChoiceText);
+      break;
+    case '복수정답': {
+      const sel = [...quizUI.multiSelected].sort((a, b) => a - b);
+      const ans = [...q.correctIndices].sort((a, b) => a - b);
+      correct = sel.length === ans.length && sel.every((v, i) => v === ans[i]);
+      break;
+    }
+    case '순서':
+      correct = quizUI.orderSelected.length === q.correctOrder.length &&
+        quizUI.orderSelected.every((v, i) => v === q.correctOrder[i]);
+      break;
+    case '선잇기': {
+      const pairs = [];
+      area.querySelectorAll('.matchSelect').forEach(s => {
+        if (s.value) pairs.push({ left: s.dataset.left, right: s.value });
+      });
+      correct = q.matchPairs.every(cp => {
+        const found = pairs.find(sp => sp.left === cp.left);
+        return found && found.right === cp.right;
+      });
+      break;
+    }
+  }
+
+  if (correct) quiz.correctCount++;
+
+  const fb = document.getElementById('quizFeedback');
+  fb.textContent = correct ? '✓ 정답!' : '✗ 오답';
+  fb.style.color = correct ? '#4ae0a0' : '#ff4757';
+  document.getElementById('quizSubmit').disabled = true;
+
+  // 1.5초 후 다음 문제 또는 종료
+  setTimeout(() => {
+    quiz.batchIdx++;
+    if (quiz.batchIdx < quiz.batch.length) {
+      showQuestion(quiz.batch[quiz.batchIdx]);
+    } else {
+      finishQuiz();
+    }
+  }, 1500);
+}
+
+function finishQuiz() {
+  const { quiz } = state;
+  quiz.active = false;
+  document.getElementById('quizOverlay').classList.add('hidden');
+
+  const now     = Date.now();
+  const correct = quiz.correctCount;
+
+  if (correct === 0) {
+    quiz.freezeUntil = now + CFG.QUIZ_FREEZE_MS;
+    quiz.nextAt      = 0; // freeze 종료 후 게임 루프에서 설정
+    console.log('[퀴즈] 0개 정답 → 3초 정지');
+  } else {
+    quiz.nextAt = now + CFG.QUIZ_INTERVAL_MS;
+    if (correct === 1) console.log('[퀴즈] 1개 정답 → 무효과');
+    else if (correct === 2) console.log('[퀴즈] 2개 정답 → 일반 카드 (4단계)');
+    else                    console.log('[퀴즈] 3개 정답 → 고급 카드 (4단계)');
+  }
+}
+
+// =============================================
+// 이벤트 리스너 — 파일 업로드 / 퀴즈 제출
+// =============================================
+
+document.getElementById('xlsxInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('uploadStatus');
+  statusEl.textContent = '파싱 중...';
+  try {
+    const questions = await parseXlsx(file);
+    state.quiz.questions = questions;
+    state.quiz.queue     = shuffleArray([...questions]);
+    state.quiz.nextAt    = Date.now() + CFG.QUIZ_INTERVAL_MS;
+    statusEl.textContent = `✓ ${questions.length}문제 로드됨`;
+    console.log('[퀴즈] 로드 완료:', questions.length, '문제');
+  } catch (err) {
+    statusEl.textContent = '오류: ' + err.message;
+    console.error('[퀴즈] 파싱 오류:', err);
+  }
+  e.target.value = ''; // 같은 파일 재업로드 허용
+});
+
+document.getElementById('quizSubmit').addEventListener('click', submitQuizAnswer);

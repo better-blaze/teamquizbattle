@@ -14,3 +14,200 @@ html, body {
 #gameCanvas {
   display: block;
 }
+
+/* =============================================
+   문제 업로드 영역
+   ============================================= */
+#uploadArea {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+#uploadBtn {
+  cursor: pointer;
+  pointer-events: all;
+  background: rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.22);
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: monospace;
+  white-space: nowrap;
+  user-select: none;
+}
+#uploadBtn:hover { background: rgba(255,255,255,0.18); }
+
+#xlsxInput { display: none; }
+
+#uploadStatus {
+  color: rgba(255,255,255,0.4);
+  font-size: 11px;
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+/* =============================================
+   퀴즈 오버레이
+   ============================================= */
+.hidden { display: none !important; }
+
+#quizOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+#quizPanel {
+  background: #12123a;
+  border: 2px solid rgba(255,255,255,0.16);
+  border-radius: 16px;
+  padding: 28px 32px;
+  max-width: 560px;
+  width: 92%;
+  max-height: 90vh;
+  overflow-y: auto;
+  color: #fff;
+  font-family: sans-serif;
+}
+
+#quizMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+#quizProgress {
+  font-size: 13px;
+  color: rgba(255,255,255,0.45);
+  font-family: monospace;
+}
+
+#quizType {
+  font-size: 11px;
+  background: rgba(74,158,255,0.22);
+  color: #4a9eff;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+#quizContent {
+  font-size: 19px;
+  line-height: 1.55;
+  margin-bottom: 18px;
+  word-break: keep-all;
+}
+
+#quizImageWrap {
+  margin-bottom: 14px;
+}
+#quizImageWrap img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+/* 단답형 입력 */
+#quizAnswerArea input[type="text"] {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 16px;
+  outline: none;
+}
+#quizAnswerArea input[type="text"]:focus {
+  border-color: #4a9eff;
+}
+
+/* 객관식·복수정답·순서 버튼 */
+.choiceBtn {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+.choiceBtn:hover  { background: rgba(255,255,255,0.13); }
+.choiceBtn.selected { background: rgba(74,158,255,0.28); border-color: #4a9eff; }
+.choiceBtn.ordered  { background: rgba(255,179,71,0.28);  border-color: #ffb347; }
+
+/* 선잇기 */
+.matchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.matchLeft {
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 6px;
+  min-width: 72px;
+  text-align: center;
+  font-size: 14px;
+}
+.matchSelect {
+  flex: 1;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+}
+.matchSelect option { background: #1a1a3a; }
+
+/* 힌트 텍스트 */
+.quizHint {
+  font-size: 12px;
+  color: rgba(255,255,255,0.38);
+  margin-bottom: 10px;
+}
+
+/* 제출 버튼 */
+#quizSubmit {
+  width: 100%;
+  padding: 12px;
+  margin-top: 6px;
+  background: #4a9eff;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#quizSubmit:hover:not(:disabled) { background: #2a7ee0; }
+#quizSubmit:disabled { background: rgba(255,255,255,0.14); cursor: default; }
+
+/* 피드백 */
+#quizFeedback {
+  margin-top: 12px;
+  font-size: 16px;
+  font-weight: bold;
+  text-align: center;
+  min-height: 24px;
+}
