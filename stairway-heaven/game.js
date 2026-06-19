@@ -24,10 +24,65 @@ const CFG = {
   QUIZ_INTERVAL_MS: 30000, // 퀴즈 출제 간격 (ms)
   QUIZ_BATCH_SIZE : 3,     // 한 번에 출제하는 문제 수
   QUIZ_FREEZE_MS  : 3000,  // 0개 정답 시 정지 시간 (ms)
+  FALL_V0         : 500,   // 표류 초기 하강 속도 (px/s)
+  FALL_ACCEL      : 150,   // 표류 가속도 계수 (px/s²)
+  FALL_LOCK_DROP  : 500,   // 추락 잠금 동안 낙하 거리 (px)
+  REVIVE_MS       : 1000,  // 부활 메시지 표시 및 입력 정지 시간 (ms)
 };
+
+// false로 바꾸면 디버그 패널 완전히 숨김
+const DEBUG = true;
 
 // 엑셀 컬럼 인덱스 (quiz-battle-royale와 동일 양식)
 const Q_COL = { NUM: 0, TYPE: 1, CONTENT: 2, IMAGE: 3, ANSWER: 4, OPT_START: 5 };
+
+// =============================================
+// 아이템 목록 — 4단계 카드 추첨 시 이 배열에서 무작위 선택
+// 확률 가중치를 직접 조정하려면 여기서 수정
+// =============================================
+const ITEM_POOL = {
+  고급: [
+    { id: '낙하산',      weight: 1 },
+    { id: '진정제',      weight: 1 },
+    { id: '엘리베이터',  weight: 1 },
+    { id: '친구따라강남', weight: 1 },
+    { id: '꽝_고급',     weight: 1 },
+    { id: '자율주행',    weight: 1 },
+  ],
+  일반: [
+    { id: '사다리', weight: 1 },
+    { id: '당근',   weight: 1 },
+    { id: '꽝',     weight: 2 }, // 꽝이 더 자주 나오도록 기본값 2
+    { id: '폭죽',   weight: 1 },
+  ],
+};
+
+// =============================================
+// 아이템 효과 핸들러 — 4단계에서 하나씩 구현
+// 디버그 패널과 카드 UI 모두 useItem()을 통해 발동
+// =============================================
+const ITEM_HANDLERS = {
+  '낙하산'     : () => { console.log('[아이템] 낙하산 발동 — 미구현'); },
+  '진정제'     : () => { console.log('[아이템] 진정제 발동 — 미구현'); },
+  '엘리베이터' : () => { console.log('[아이템] 엘리베이터 발동 — 미구현'); },
+  '친구따라강남': () => { console.log('[아이템] 친구따라강남 발동 — 미구현'); },
+  '꽝_고급'    : () => { console.log('[아이템] 꽝(고급) — 무효과'); },
+  '자율주행'   : () => { console.log('[아이템] 자율주행 발동 — 미구현'); },
+  '사다리'     : () => { console.log('[아이템] 사다리 발동 — 미구현'); },
+  '당근'       : () => { console.log('[아이템] 당근 발동 — 미구현'); },
+  '꽝'         : () => { console.log('[아이템] 꽝 — 무효과'); },
+  '폭죽'       : () => { console.log('[아이템] 폭죽 발동 — 미구현'); },
+};
+
+// 아이템 발동 진입점 — 디버그 패널·카드 UI 모두 이 함수 하나를 호출
+function useItem(id) {
+  const handler = ITEM_HANDLERS[id];
+  if (handler) {
+    handler();
+  } else {
+    console.warn('[아이템] 알 수 없는 아이템:', id);
+  }
+}
 
 // =============================================
 // 난이도 구간 파라미터 — 숫자만 바꾸면 난이도 조정 가능
@@ -158,6 +213,7 @@ const state = {
     whipGauge         : 0,   // 채찍 게이지 (0 ~ WHIP_MAX)
     whipTickAt        : 0,   // 다음 게이지 증가 만료 시각 (0 = 미초기화)
     whipFlashAt       : 0,   // 채찍 발동 플래시 시작 시각
+    reviveEndsAt      : 0,   // 부활 연출 종료 만료 시각 (0 = 비활성)
     pendingCard       : null, // 보유 중인 카드: null | 'normal' | 'premium' (4단계에서 사용)
     cardNotifyAt      : 0,   // 카드 획득 알림 표시 시작 시각
   },
@@ -183,17 +239,17 @@ logMapSample(state.map);
 function getPlayerWorldY() {
   const { player, steps } = state;
 
-  if (player.phase === 'normal') {
+  if (player.phase === 'normal' || player.phase === 'reviving') {
     return steps[player.stepIndex].y - CFG.STEP_TOP; // 발판 윗면
   }
   if (player.phase === 'falling_locked') {
     const elapsed = CFG.FALL_LOCK_MS - Math.max(player.fallLockEndsAt - Date.now(), 0);
     const t = elapsed / CFG.FALL_LOCK_MS;
-    return (player.fallFromY - CFG.STEP_TOP) + t * 50; // 잠금 동안 50px 낙하
+    return (player.fallFromY - CFG.STEP_TOP) + t * CFG.FALL_LOCK_DROP;
   }
   if (player.phase === 'drifting') {
     const s = (Date.now() - player.driftStartAt) / 1000;
-    return player.driftY + 50 * s + 15 * s * s; // 가속 낙하 (px)
+    return player.driftY + CFG.FALL_V0 * s + CFG.FALL_ACCEL * s * s;
   }
   // gameover: driftY에 최종 위치가 저장돼 있음
   return player.driftY;
@@ -213,9 +269,10 @@ function getPlayerWorldX() {
 function handleInput(code) {
   const { player, steps, map } = state;
 
-  // 퀴즈 진행 중 또는 0점 패널티 정지 중 — 모든 입력 차단
+  // 퀴즈 진행 중 또는 0점 패널티 정지 중 또는 부활 연출 중 — 모든 입력 차단
   if (state.quiz.active) return;
   if (state.quiz.freezeUntil > Date.now()) return;
+  if (player.phase === 'reviving') return;
 
   // 게임오버: 아무 입력이나 재시작
   if (player.phase === 'gameover') {
@@ -225,6 +282,7 @@ function handleInput(code) {
     player.whipGauge         = 0;
     player.whipTickAt        = 0;
     player.whipFlashAt       = 0;
+    player.reviveEndsAt      = 0;
     state.camera.x           = 0;
     state.camera.y           = 0;
     player.pendingCard       = null;
@@ -394,7 +452,7 @@ function render() {
   ctx.fillRect(px + 4,  top + 8, 6, 6);
 
   // --- 채찍 게이지 바 (좌상단) ---
-  if (player.phase === 'normal' || player.phase === 'falling_locked') {
+  if (player.phase === 'normal' || player.phase === 'falling_locked' || player.phase === 'reviving') {
     const gx = 16, gy = 16;
     const segW = 16, segH = 20, segGap = 3;
 
@@ -540,6 +598,27 @@ function render() {
     }
   }
 
+  // --- 부활 메시지 ---
+  if (player.phase === 'reviving') {
+    const elapsed  = Date.now() - (player.reviveEndsAt - CFG.REVIVE_MS);
+    const progress = elapsed / CFG.REVIVE_MS; // 0 → 1
+    // 후반 30%에서 서서히 페이드아웃
+    const alpha    = progress < 0.7 ? 1 : 1 - (progress - 0.7) / 0.3;
+
+    ctx.save();
+    ctx.globalAlpha  = Math.max(0, alpha);
+    ctx.font         = 'bold 64px sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    // 외곽선 (가독성)
+    ctx.strokeStyle  = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth    = 6;
+    ctx.strokeText('부활!', W / 2, H / 2 - 60);
+    ctx.fillStyle    = '#ffe066';
+    ctx.fillText('부활!', W / 2, H / 2 - 60);
+    ctx.restore();
+  }
+
   // --- 퀴즈 0점 패널티 정지 ---
   const renderNow = Date.now();
   if (state.quiz.freezeUntil > renderNow) {
@@ -583,7 +662,7 @@ function loop() {
     player.phase        = 'drifting';
     player.driftX       = steps[player.stepIndex].x;
     // 잠금 동안 낙하한 발바닥 y를 표류 시작점으로 사용
-    player.driftY       = (player.fallFromY - CFG.STEP_TOP) + 50;
+    player.driftY       = (player.fallFromY - CFG.STEP_TOP) + CFG.FALL_LOCK_DROP;
     player.driftStartAt = now;
     player.driftEndsAt  = now + CFG.DRIFT_SECONDS * 1000;
   }
@@ -591,7 +670,7 @@ function loop() {
   // 표류 중: 착지 판정 + 시간 초과
   if (player.phase === 'drifting') {
     const s        = (now - player.driftStartAt) / 1000;
-    const feetY    = player.driftY + 50 * s + 15 * s * s; // 현재 발바닥 y
+    const feetY    = player.driftY + CFG.FALL_V0 * s + CFG.FALL_ACCEL * s * s;
 
     for (let i = 0; i < steps.length; i++) {
       const step     = steps[i];
@@ -604,19 +683,26 @@ function loop() {
       if (feetY < surfaceY || feetY > surfaceY + CFG.LAND_TOL) continue;
       if (Math.abs(player.driftX - step.x) >= (CFG.STEP_W + CFG.PLAYER_W) / 2) continue;
 
-      player.phase              = 'normal';
+      player.phase              = 'reviving';
       player.stepIndex          = i;
       player.fallFromStepIndex  = -1;
-      player.whipTickAt         = now + getWhipInterval(); // 착지 후 채찍 타이머 리셋
+      player.reviveEndsAt       = now + CFG.REVIVE_MS;
+      player.whipTickAt         = player.reviveEndsAt + getWhipInterval(); // 부활 후 채찍 타이머 시작
       break;
     }
 
     // 5초 초과 → 게임오버 (driftY를 현재 위치로 고정)
     if (player.phase === 'drifting' && now >= player.driftEndsAt) {
       const s2       = (now - player.driftStartAt) / 1000;
-      player.driftY  = player.driftY + 50 * s2 + 15 * s2 * s2; // 최종 위치 저장
+      player.driftY  = player.driftY + CFG.FALL_V0 * s2 + CFG.FALL_ACCEL * s2 * s2;
       player.phase   = 'gameover';
     }
+  }
+
+  // 부활 연출 종료 → normal 전환
+  if (player.phase === 'reviving' && now >= player.reviveEndsAt) {
+    player.phase        = 'normal';
+    player.reviveEndsAt = 0;
   }
 
   // 퀴즈 0점 패널티 정지 종료
@@ -954,6 +1040,23 @@ function finishQuiz() {
     state.player.cardNotifyAt = now;
     quiz.nextAt = now + CFG.QUIZ_INTERVAL_MS;
     console.log(`[퀴즈] ${correct}개 정답 → ${cardType === 'premium' ? '고급' : '일반'} 카드 획득`);
+  }
+}
+
+// =============================================
+// 디버그 패널 초기화
+// =============================================
+{
+  const toggle = document.getElementById('debugToggle');
+  const panel  = document.getElementById('debugPanel');
+  if (!DEBUG) {
+    // DEBUG = false 면 토글 버튼 자체를 숨겨 완전히 제거
+    toggle.style.display = 'none';
+  } else {
+    toggle.addEventListener('click', () => panel.classList.toggle('hidden'));
+    window.addEventListener('keydown', (e) => {
+      if (e.key === '`') panel.classList.toggle('hidden');
+    });
   }
 }
 

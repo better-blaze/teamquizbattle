@@ -203,6 +203,78 @@ html, body {
 #quizSubmit:hover:not(:disabled) { background: #2a7ee0; }
 #quizSubmit:disabled { background: rgba(255,255,255,0.14); cursor: default; }
 
+/* =============================================
+   개발용 디버그 패널
+   ============================================= */
+#debugToggle {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  z-index: 200;
+  background: rgba(255, 80, 80, 0.22);
+  color: rgba(255, 150, 150, 0.9);
+  border: 1px solid rgba(255, 80, 80, 0.4);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: bold;
+  cursor: pointer;
+  letter-spacing: 1px;
+  user-select: none;
+}
+#debugToggle:hover { background: rgba(255, 80, 80, 0.36); }
+
+#debugPanel {
+  position: fixed;
+  bottom: 44px;
+  right: 12px;
+  z-index: 200;
+  background: rgba(10, 10, 28, 0.94);
+  border: 1px solid rgba(255, 80, 80, 0.3);
+  border-radius: 10px;
+  padding: 12px 14px;
+  min-width: 170px;
+  font-family: monospace;
+}
+
+.debugTitle {
+  font-size: 11px;
+  color: rgba(255, 120, 120, 0.75);
+  margin-bottom: 10px;
+  letter-spacing: 0.5px;
+}
+
+.debugGroup {
+  margin-bottom: 10px;
+}
+.debugGroup:last-child { margin-bottom: 0; }
+
+.debugLabel {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  margin-bottom: 5px;
+  letter-spacing: 0.5px;
+}
+
+#debugPanel button {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-family: monospace;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+#debugPanel button:hover { background: rgba(255, 255, 255, 0.16); }
+#debugPanel button:last-child { margin-bottom: 0; }
+
 /* 피드백 */
 #quizFeedback {
   margin-top: 12px;

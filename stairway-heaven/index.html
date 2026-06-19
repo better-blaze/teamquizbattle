@@ -11,6 +11,28 @@
 <body>
   <canvas id="gameCanvas"></canvas>
 
+  <!-- 개발용 디버그 패널 -->
+  <button id="debugToggle" title="디버그 패널 토글 (` 키)">DEV</button>
+  <div id="debugPanel" class="hidden">
+    <div class="debugTitle">디버그 — 아이템 즉시 발동</div>
+    <div class="debugGroup">
+      <div class="debugLabel">고급 아이템</div>
+      <button onclick="useItem('낙하산')">낙하산</button>
+      <button onclick="useItem('진정제')">진정제</button>
+      <button onclick="useItem('엘리베이터')">엘리베이터</button>
+      <button onclick="useItem('친구따라강남')">친구따라강남</button>
+      <button onclick="useItem('꽝_고급')">꽝(고급)</button>
+      <button onclick="useItem('자율주행')">자율주행</button>
+    </div>
+    <div class="debugGroup">
+      <div class="debugLabel">일반 아이템</div>
+      <button onclick="useItem('사다리')">사다리</button>
+      <button onclick="useItem('당근')">당근</button>
+      <button onclick="useItem('꽝')">꽝</button>
+      <button onclick="useItem('폭죽')">폭죽</button>
+    </div>
+  </div>
+
   <!-- 문제 업로드 버튼 -->
   <div id="uploadArea">
     <label id="uploadBtn" for="xlsxInput">문제 업로드</label>
