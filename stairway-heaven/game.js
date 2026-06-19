@@ -5,7 +5,7 @@
 // =============================================
 const CFG = {
   SEED          : 42,
-  MAP_LEN       : 30,
+  MAP_LEN       : 300,  // 총 계단 수 (STEPS_PER_M으로 나누면 최대 높이 m)
   UNIT          : 70,    // 가로 이동 단위 (px)
   STEP_W        : 96,    // 발판 너비
   STEP_TOP      : 18,    // 발판 윗면 두께
@@ -22,6 +22,25 @@ const CFG = {
   WHIP_HEIGHT_MAX: 500,  // n이 최솟값에 도달하는 높이 (m)
   WHIP_MAX       : 10,   // 채찍 게이지 최댓값 (도달 시 랜덤 키 발동)
 };
+
+// =============================================
+// 난이도 구간 파라미터 — 숫자만 바꾸면 난이도 조정 가능
+//
+// fromM       : 구간 시작 높이 (m). 오름차순으로 정렬할 것.
+// jumpChance  : 점프 키(2=좌점프, 3=우점프) 등장 확률 (0.0~1.0)
+// changeChance: 이전 방향과 다른 방향이 나올 확률 (0.0~1.0)
+//               낮을수록 같은 키가 길게 이어짐.
+//               평균 연속 칸 수 ≈ 1 / changeChance
+//               (예: 0.20 → 평균 5칸 연속, 0.90 → 평균 1.1칸 연속)
+// =============================================
+const MAP_ZONES = [
+  { fromM:   0, jumpChance: 0.00, changeChance: 0.20 }, // 0~10m  : 점프 없음, 평균 5칸 연속
+  { fromM:  10, jumpChance: 0.15, changeChance: 0.30 }, // 10~20m : 점프 가끔, 평균 3칸 연속
+  { fromM:  20, jumpChance: 0.30, changeChance: 0.45 }, // 20~50m : 점프 보통, 평균 2칸 연속
+  { fromM:  50, jumpChance: 0.45, changeChance: 0.60 }, // 50~100m: 점프 많음
+  { fromM: 100, jumpChance: 0.60, changeChance: 0.75 }, // 100~200m
+  { fromM: 200, jumpChance: 0.70, changeChance: 0.90 }, // 200m+  : 거의 매 칸 바뀜
+];
 
 // =============================================
 // 시드 기반 의사난수 생성기 (mulberry32)
@@ -45,10 +64,60 @@ function getWhipInterval() {
   return CFG.WHIP_N_START - (CFG.WHIP_N_START - CFG.WHIP_N_END) * t;
 }
 
+// 주어진 높이(m)에 해당하는 난이도 구간 파라미터 반환
+function getZoneParams(heightM) {
+  let zone = MAP_ZONES[0];
+  for (const z of MAP_ZONES) {
+    if (heightM >= z.fromM) zone = z;
+  }
+  return zone;
+}
+
 // 0=좌1칸  1=우1칸  2=좌점프  3=우점프
+// 구간(MAP_ZONES)별로 점프 확률과 연속성을 조절해 난이도 상승
+// rng()를 계단마다 정확히 2번 호출하므로 같은 시드 → 항상 같은 맵
 function generateMap(seed, length) {
   const rng = createRNG(seed);
-  return Array.from({ length }, () => Math.floor(rng() * 4));
+  const map = [];
+  let prevDir = 0; // 이전 방향: 0=왼쪽, 1=오른쪽
+
+  for (let i = 0; i < length; i++) {
+    const zone = getZoneParams(i / CFG.STEPS_PER_M);
+
+    const r1 = rng(); // 점프 여부 결정
+    const r2 = rng(); // 방향 변경 여부 결정
+
+    const isJump = r1 < zone.jumpChance;
+    const newDir = (r2 < zone.changeChance) ? 1 - prevDir : prevDir;
+
+    // 방향(newDir) × 거리(isJump) → 키 코드
+    map.push(newDir === 0 ? (isJump ? 2 : 0) : (isJump ? 3 : 1));
+    prevDir = newDir;
+  }
+
+  return map;
+}
+
+// 구간별 맵 샘플을 콘솔에 출력 (의도대로 생성됐는지 확인용)
+function logMapSample(map) {
+  const LABEL = ['←1', '→1', '←←', '→→'];
+  const ZONES_TO_CHECK = [
+    { label: ' 0~10m (쉬움)',    from:   0 },
+    { label: '10~20m (보통)',    from: 100 },
+    { label: '20~30m (어려움)', from: 200 },
+  ];
+  console.log('[천국의 계단] 구간별 맵 샘플 (시드=' + CFG.SEED + '):');
+  for (const s of ZONES_TO_CHECK) {
+    if (s.from >= map.length) {
+      console.log('  ' + s.label + ': (해당 구간 없음 — MAP_LEN 부족)');
+      continue;
+    }
+    const slice = map.slice(s.from, s.from + 15);
+    const keys  = slice.map(k => LABEL[k]).join(' ');
+    // 점프 비율 계산
+    const jumpCount = slice.filter(k => k >= 2).length;
+    console.log('  ' + s.label + ': ' + keys + '  [점프 ' + jumpCount + '/15]');
+  }
 }
 
 function buildSteps(map) {
@@ -84,11 +153,11 @@ const state = {
     whipTickAt        : 0,   // 다음 게이지 증가 만료 시각 (0 = 미초기화)
     whipFlashAt       : 0,   // 채찍 발동 플래시 시작 시각
   },
-  camera: { y: 0 },
+  camera: { x: 0, y: 0 },
 };
 state.steps = buildSteps(state.map);
 
-console.log(`[천국의 계단] 시드=${CFG.SEED}  맵:`, state.map.join(' '));
+logMapSample(state.map);
 
 // =============================================
 // 플레이어 발바닥 world-y (phase별)
@@ -134,6 +203,7 @@ function handleInput(code) {
     player.whipGauge         = 0;
     player.whipTickAt        = 0;
     player.whipFlashAt       = 0;
+    state.camera.x           = 0;
     state.camera.y           = 0;
     return;
   }
@@ -219,7 +289,7 @@ function render() {
   // 표류/추락 중엔 화면을 위로 당겨 아래쪽 계단을 더 보여줌
   const isDrifting = player.phase === 'drifting' || player.phase === 'falling_locked';
   const yFrac  = isDrifting ? 0.35 : 0.75;
-  const originX = W / 2;
+  const originX = W / 2 - camera.x;
   const originY = H * yFrac - camera.y;
   const toSx = (wx) => originX + wx;
   const toSy = (wy) => originY + wy;
@@ -495,7 +565,8 @@ function loop() {
     }
   }
 
-  // 카메라를 현재 플레이어 발바닥 y로 부드럽게 추적
+  // 카메라를 플레이어 위치로 부드럽게 추적 (X·Y 모두)
+  state.camera.x += (getPlayerWorldX() - state.camera.x) * 0.1;
   state.camera.y += (getPlayerWorldY() - state.camera.y) * 0.1;
 
   render();
