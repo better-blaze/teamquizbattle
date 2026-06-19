@@ -158,6 +158,8 @@ const state = {
     whipGauge         : 0,   // 채찍 게이지 (0 ~ WHIP_MAX)
     whipTickAt        : 0,   // 다음 게이지 증가 만료 시각 (0 = 미초기화)
     whipFlashAt       : 0,   // 채찍 발동 플래시 시작 시각
+    pendingCard       : null, // 보유 중인 카드: null | 'normal' | 'premium' (4단계에서 사용)
+    cardNotifyAt      : 0,   // 카드 획득 알림 표시 시작 시각
   },
   camera: { x: 0, y: 0 },
   quiz: {
@@ -225,6 +227,8 @@ function handleInput(code) {
     player.whipFlashAt       = 0;
     state.camera.x           = 0;
     state.camera.y           = 0;
+    player.pendingCard       = null;
+    player.cardNotifyAt      = 0;
     state.quiz.active        = false;
     state.quiz.freezeUntil   = 0;
     state.quiz.nextAt        = state.quiz.questions.length > 0
@@ -518,6 +522,24 @@ function render() {
     ctx.fillText('천국 도착!', W / 2, H / 2);
   }
 
+  // --- 카드 획득 알림 (2초간 표시) ---
+  if (player.cardNotifyAt > 0) {
+    const elapsed  = Date.now() - player.cardNotifyAt;
+    if (elapsed < 2000) {
+      const alpha    = 1 - elapsed / 2000;
+      const isPrem   = player.pendingCard === 'premium';
+      const label    = isPrem ? '고급 카드 획득!' : '일반 카드 획득!';
+      const color    = isPrem ? '#b06eff' : '#4a9eff';
+      ctx.globalAlpha = alpha;
+      ctx.font         = 'bold 36px sans-serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle    = color;
+      ctx.fillText(label, W / 2, H / 2 - 80);
+      ctx.globalAlpha  = 1;
+    }
+  }
+
   // --- 퀴즈 0점 패널티 정지 ---
   const renderNow = Date.now();
   if (state.quiz.freezeUntil > renderNow) {
@@ -709,7 +731,8 @@ function buildQuestion(r) {
         .map(s => parseInt(s.trim()) - 1).filter(n => !isNaN(n));
       break;
     case '객관식':
-      q.correctChoiceText = answerRaw;
+      // 정답은 1-based 보기 번호 (예: "1" → 보기 1번 → 0-based 인덱스 0)
+      q.correctChoiceIdx = parseInt(answerRaw.trim()) - 1;
       break;
   }
   return q;
@@ -865,8 +888,8 @@ function submitQuizAnswer() {
       break;
     }
     case '객관식':
-      correct = quizUI.selected !== null &&
-        normalize(q.choices[quizUI.selected]) === normalize(q.correctChoiceText);
+      // 선택한 버튼의 인덱스와 정답 인덱스 직접 비교
+      correct = quizUI.selected !== null && quizUI.selected === q.correctChoiceIdx;
       break;
     case '복수정답': {
       const sel = [...quizUI.multiSelected].sort((a, b) => a - b);
@@ -921,11 +944,16 @@ function finishQuiz() {
     quiz.freezeUntil = now + CFG.QUIZ_FREEZE_MS;
     quiz.nextAt      = 0; // freeze 종료 후 게임 루프에서 설정
     console.log('[퀴즈] 0개 정답 → 3초 정지');
-  } else {
+  } else if (correct === 1) {
     quiz.nextAt = now + CFG.QUIZ_INTERVAL_MS;
-    if (correct === 1) console.log('[퀴즈] 1개 정답 → 무효과');
-    else if (correct === 2) console.log('[퀴즈] 2개 정답 → 일반 카드 (4단계)');
-    else                    console.log('[퀴즈] 3개 정답 → 고급 카드 (4단계)');
+    console.log('[퀴즈] 1개 정답 → 무효과');
+  } else {
+    // 2개 이상 정답: 카드 획득 — 4단계에서 UI·효과 구현
+    const cardType = correct >= 3 ? 'premium' : 'normal';
+    state.player.pendingCard  = cardType;
+    state.player.cardNotifyAt = now;
+    quiz.nextAt = now + CFG.QUIZ_INTERVAL_MS;
+    console.log(`[퀴즈] ${correct}개 정답 → ${cardType === 'premium' ? '고급' : '일반'} 카드 획득`);
   }
 }
 
