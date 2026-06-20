@@ -30,6 +30,8 @@ const CFG = {
   REVIVE_MS       : 1000,  // 부활 메시지 표시 및 입력 정지 시간 (ms)
   ITEM_DURATION_MS      : 30000, // 아이템 지속 시간 (30초)
   SEDATIVE_MULTIPLIER   : 2.5,   // 진정제 발동 중 채찍 게이지 간격 배율
+  CARROT_MULTIPLIER     : 1.5,   // 당근 발동 중 채찍 게이지 간격 배율
+  CARROT_MS             : 20000, // 당근 지속 시간 (ms)
   PARACHUTE_FALL_V0     : 90,    // 낙하산 발동 중 표류 초기 하강 속도 (px/s)
   PARACHUTE_FALL_ACCEL  : 25,    // 낙하산 발동 중 표류 가속도 (px/s²)
   PARACHUTE_LOCK_DROP   : 120,   // 낙하산 발동 중 추락 잠금 낙하 거리 (px)
@@ -98,7 +100,7 @@ const ITEM_HANDLERS = {
   '꽝_고급'    : () => { console.log('[아이템] 꽝(고급) — 무효과'); },
   '자율주행'   : () => { activateItem('자율주행', CFG.AUTOPILOT_MS); },
   '사다리'     : () => { teleportUp(1); },
-  '당근'       : () => { console.log('[아이템] 당근 발동 — 미구현'); },
+  '당근'       : () => { activateItem('당근', CFG.CARROT_MS); },
   '꽝'         : () => { console.log('[아이템] 꽝 — 무효과'); },
   '폭죽'       : () => { console.log('[아이템] 폭죽 발동 — 미구현'); },
   '거울의 저주': () => { startCurseConfirm('거울의 저주'); },
@@ -376,14 +378,15 @@ function calcDriftY(s) {
 
 // 현재 높이(m)에 따른 채찍 무입력 허용 간격 (ms)
 // 0m → 2000ms, 500m → 200ms 선형 감소, 200ms 하한
-// 진정제 발동 중에는 간격이 2.5배 늘어남 (게이지가 훨씬 천천히 참)
+// 진정제·당근 발동 중에는 각 배율만큼 간격이 늘어남 (게이지가 천천히 참)
 function getWhipInterval() {
   const height = state.player.stepIndex / CFG.STEPS_PER_M;
   const t      = Math.min(height / CFG.WHIP_HEIGHT_MAX, 1);
   const base   = CFG.WHIP_N_START - (CFG.WHIP_N_START - CFG.WHIP_N_END) * t;
   const item   = state.player.activeItem;
-  if (item && item.id === '진정제' && item.endsAt > Date.now()) {
-    return base * CFG.SEDATIVE_MULTIPLIER;
+  if (item && item.endsAt > Date.now()) {
+    if (item.id === '진정제') return base * CFG.SEDATIVE_MULTIPLIER;
+    if (item.id === '당근')   return base * CFG.CARROT_MULTIPLIER;
   }
   return base;
 }
@@ -839,7 +842,8 @@ function render() {
     const gx = 16, gy = 16;
     const segW = 16, segH = 20, segGap = 3;
 
-    const isSedated = player.activeItem?.id === '진정제' && player.activeItem.endsAt > Date.now();
+    const isSedated = (player.activeItem?.id === '진정제' || player.activeItem?.id === '당근')
+                      && player.activeItem.endsAt > Date.now();
 
     ctx.font         = 'bold 12px monospace';
     ctx.textAlign    = 'left';
