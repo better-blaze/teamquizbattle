@@ -32,6 +32,9 @@ const CFG = {
   SEDATIVE_MULTIPLIER   : 2.5,   // 진정제 발동 중 채찍 게이지 간격 배율
   CARROT_MULTIPLIER     : 1.5,   // 당근 발동 중 채찍 게이지 간격 배율
   CARROT_MS             : 20000, // 당근 지속 시간 (ms)
+  FIREWORK_MS           : 20000, // 폭죽 지속 시간 (ms)
+  FIREWORK_COUNT        : 14,    // 계단당 파티클 수
+  FIREWORK_LIFETIME     : 0.75,  // 파티클 최대 수명 (초)
   PARACHUTE_FALL_V0     : 90,    // 낙하산 발동 중 표류 초기 하강 속도 (px/s)
   PARACHUTE_FALL_ACCEL  : 25,    // 낙하산 발동 중 표류 가속도 (px/s²)
   PARACHUTE_LOCK_DROP   : 120,   // 낙하산 발동 중 추락 잠금 낙하 거리 (px)
@@ -102,7 +105,7 @@ const ITEM_HANDLERS = {
   '사다리'     : () => { teleportUp(1); },
   '당근'       : () => { activateItem('당근', CFG.CARROT_MS); },
   '꽝'         : () => { console.log('[아이템] 꽝 — 무효과'); },
-  '폭죽'       : () => { console.log('[아이템] 폭죽 발동 — 미구현'); },
+  '폭죽'       : () => { activateItem('폭죽', CFG.FIREWORK_MS); },
   '거울의 저주': () => { startCurseConfirm('거울의 저주'); },
   '암흑의 저주': () => { startCurseConfirm('암흑의 저주'); },
 };
@@ -242,6 +245,30 @@ function showFriendFollowOverlay() {
 function hideFriendFollowOverlay() {
   state.friendFollow.active = false;
   document.getElementById('friendFollowOverlay').classList.add('hidden');
+}
+
+// =============================================
+// 폭죽 파티클
+// =============================================
+
+const FIREWORK_COLORS = ['#ff4757', '#ffd700', '#4ae0a0', '#4a9eff', '#ff6b81', '#b06eff', '#ff9f43', '#fff'];
+
+// 월드 좌표 (worldX, worldY)에서 폭죽 파티클 생성
+function spawnFirework(worldX, worldY) {
+  const n = CFG.FIREWORK_COUNT;
+  for (let i = 0; i < n; i++) {
+    const angle    = (i / n) * Math.PI * 2 + Math.random() * 0.3;
+    const speed    = 55 + Math.random() * 75; // px/s
+    const lifetime = CFG.FIREWORK_LIFETIME * (0.7 + Math.random() * 0.6);
+    state.fireworks.push({
+      worldX, worldY,
+      vx       : Math.cos(angle) * speed,
+      vy       : Math.sin(angle) * speed,
+      color    : FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)],
+      spawnedAt: Date.now(),
+      lifetime,
+    });
+  }
 }
 
 // =============================================
@@ -490,6 +517,7 @@ const state = {
     autoInputAt         : 0,   // 자율주행 다음 자동 입력 만료 시각 (0 = 비활성)
   },
   camera: { x: 0, y: 0 },
+  fireworks   : [], // 폭죽 파티클 배열: [{ worldX, worldY, vx, vy, color, spawnedAt, lifetime }]
   friendFollow: { active: false }, // 친구따라강남 오버레이 활성 여부
   curse: {
     confirmActive  : false,  // "저주를 거시겠습니까?" 확인 창 활성
@@ -596,6 +624,7 @@ function handleInput(code) {
     player.teleportFlashLabel = '';
     player.elevating          = null;
     player.autoInputAt        = 0;
+    state.fireworks           = [];
     state.friendFollow.active = false;
     hideFriendFollowOverlay();
     // 저주 상태 완전 초기화
@@ -629,6 +658,10 @@ function handleInput(code) {
   const expected = map[player.stepIndex];
   if (code === expected) {
     player.stepIndex++;
+    // 폭죽 아이템 활성 시 올라선 계단에서 파티클 발생
+    if (player.activeItem?.id === '폭죽' && isItemActive()) {
+      spawnFirework(steps[player.stepIndex].x, steps[player.stepIndex].y - CFG.STEP_TOP);
+    }
   } else {
     // 오답: 추락 잠금 시작
     player.phase              = 'falling_locked';
@@ -802,6 +835,25 @@ function render() {
     ctx.moveTo(px - 22, chuteY); ctx.lineTo(px - PW / 2, top);
     ctx.moveTo(px + 22, chuteY); ctx.lineTo(px + PW / 2, top);
     ctx.stroke();
+  }
+
+  // --- 폭죽 파티클 ---
+  if (state.fireworks.length > 0) {
+    const renderNow2 = Date.now();
+    ctx.save();
+    for (const p of state.fireworks) {
+      const age   = (renderNow2 - p.spawnedAt) / 1000;
+      if (age > p.lifetime) continue;
+      const alpha = 1 - age / p.lifetime;
+      const sx    = toSx(p.worldX + p.vx * age);
+      const sy    = toSy(p.worldY + p.vy * age);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle   = p.color;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   // --- 활성 아이템 HUD (화면 상단 중앙) ---
@@ -1183,6 +1235,11 @@ function loop() {
   if (player.activeItem && player.activeItem.endsAt !== undefined && player.activeItem.endsAt <= now) {
     console.log(`[아이템] ${player.activeItem.id} 만료`);
     player.activeItem = null;
+  }
+
+  // 만료된 폭죽 파티클 제거
+  if (state.fireworks.length > 0) {
+    state.fireworks = state.fireworks.filter(p => now - p.spawnedAt < p.lifetime * 1000);
   }
 
   // ── 저주 상태 머신 ──────────────────────────────
