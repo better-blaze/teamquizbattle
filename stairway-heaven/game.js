@@ -29,9 +29,11 @@ const CFG = {
   FALL_LOCK_DROP  : 500,   // 추락 잠금 동안 낙하 거리 (px)
   REVIVE_MS       : 1000,  // 부활 메시지 표시 및 입력 정지 시간 (ms)
   ITEM_DURATION_MS      : 30000, // 아이템 지속 시간 (30초)
+  SEDATIVE_MULTIPLIER   : 2.5,   // 진정제 발동 중 채찍 게이지 간격 배율
   PARACHUTE_FALL_V0     : 90,    // 낙하산 발동 중 표류 초기 하강 속도 (px/s)
   PARACHUTE_FALL_ACCEL  : 25,    // 낙하산 발동 중 표류 가속도 (px/s²)
   PARACHUTE_LOCK_DROP   : 120,   // 낙하산 발동 중 추락 잠금 낙하 거리 (px)
+  ELEVATOR_ANIM_MS      : 700,   // 엘리베이터 상승 카메라 애니메이션 시간 (ms)
 };
 
 // false로 바꾸면 디버그 패널 완전히 숨김
@@ -63,11 +65,11 @@ const ITEM_POOL = {
   ],
 };
 
-// 충전식 아이템 — id별 최대 사용 횟수 (이 목록에 없으면 시간제 아이템)
+// 충전식 아이템 — id별 사용 횟수와 유효시간 (이 목록에 없으면 시간제 아이템)
 const ITEM_CHARGES = {
-  '낙하산'   : 1,
-  '낙하산2개': 2,
-  '낙하산3개': 3,
+  '낙하산'   : { charges: 1, durationMs: 30000 },
+  '낙하산2개': { charges: 2, durationMs: 45000 },
+  '낙하산3개': { charges: 3, durationMs: 60000 },
 };
 
 // =============================================
@@ -78,8 +80,8 @@ const ITEM_HANDLERS = {
   '낙하산'     : () => { activateItem('낙하산'); },
   '낙하산2개'  : () => { activateItem('낙하산2개'); },
   '낙하산3개'  : () => { activateItem('낙하산3개'); },
-  '진정제'     : () => { console.log('[아이템] 진정제 발동 — 미구현'); },
-  '엘리베이터' : () => { console.log('[아이템] 엘리베이터 발동 — 미구현'); },
+  '진정제'     : () => { activateItem('진정제'); },
+  '엘리베이터' : () => { teleportUp(5); },
   '친구따라강남': () => { console.log('[아이템] 친구따라강남 발동 — 미구현'); },
   '꽝_고급'    : () => { console.log('[아이템] 꽝(고급) — 무효과'); },
   '자율주행'   : () => { console.log('[아이템] 자율주행 발동 — 미구현'); },
@@ -103,8 +105,9 @@ function useItem(id) {
 function isItemActive() {
   const item = state.player.activeItem;
   if (!item) return false;
+  if (item.endsAt !== undefined && item.endsAt <= Date.now()) return false; // 유효시간 초과
   if (item.charges !== undefined) return item.charges > 0;
-  return item.endsAt !== undefined && item.endsAt > Date.now();
+  return true;
 }
 
 // 아이템 활성화 — 충전식(낙하산류)은 횟수로, 나머지는 시간으로 관리
@@ -113,22 +116,77 @@ function activateItem(id) {
   const now = Date.now();
   if (isItemActive()) {
     const cur = state.player.activeItem;
-    const curLabel = cur.charges !== undefined
-      ? `'${cur.id}' (${cur.charges}회 남음)`
-      : `'${cur.id}' (${Math.ceil((cur.endsAt - now) / 1000)}초 남음)`;
+    let curLabel;
+    if (cur.charges !== undefined) {
+      const remSec = Math.ceil(Math.max(cur.endsAt - now, 0) / 1000);
+      curLabel = `'낙하산' (${cur.charges}회, ${remSec}초 남음)`;
+    } else {
+      curLabel = `'${cur.id}' (${Math.ceil((cur.endsAt - now) / 1000)}초 남음)`;
+    }
     const ok = confirm(`${curLabel} 효과가 남아있습니다.\n'${id}'(으)로 교체하시겠습니까?`);
     if (!ok) return;
   }
-  const charges = ITEM_CHARGES[id];
-  if (charges !== undefined) {
-    // 충전식 — 낙하 때마다 1회 소모, 0이 되면 자동 제거
-    state.player.activeItem = { id, charges };
-    console.log(`[아이템] ${id} 활성화 — ${charges}회`);
+  const chargeInfo = ITEM_CHARGES[id];
+  if (chargeInfo !== undefined) {
+    // 충전식 — 낙하 때마다 1회 소모 또는 유효시간 초과 시 자동 제거
+    state.player.activeItem = { id, charges: chargeInfo.charges, endsAt: now + chargeInfo.durationMs };
+    console.log(`[아이템] ${id} 활성화 — ${chargeInfo.charges}회 / ${chargeInfo.durationMs / 1000}초`);
   } else {
     // 시간제 — 30초 후 만료
     state.player.activeItem = { id, endsAt: now + CFG.ITEM_DURATION_MS };
     console.log(`[아이템] ${id} 활성화 — ${CFG.ITEM_DURATION_MS / 1000}초`);
   }
+}
+
+// targetIdx 주변에서 가장 가까운 "안전한 1칸 계단"(code 0|1)을 탐색해 인덱스 반환
+// minIdx 미만 및 범위 초과 계단은 제외 (현재 위치 이하로 내려가지 않도록)
+function findSafeStep(targetIdx, minIdx) {
+  const { steps } = state;
+  for (let offset = 0; offset <= 30; offset++) {
+    const candidates = offset === 0 ? [0] : [offset, -offset];
+    for (const delta of candidates) {
+      const idx = targetIdx + delta;
+      if (idx < minIdx || idx >= steps.length) continue;
+      if (steps[idx].code === 0 || steps[idx].code === 1) return idx;
+    }
+  }
+  // 30칸 내에 안전한 계단이 없으면 targetIdx를 범위 내로 클램프
+  return Math.max(minIdx, Math.min(targetIdx, steps.length - 1));
+}
+
+// 현재 높이에서 meters m 위 안전한 계단으로 상승 이동 (엘리베이터·사다리 공용)
+// animMs: 카메라 상승 애니메이션 시간 (0이면 즉시 이동)
+function teleportUp(meters, animMs = CFG.ELEVATOR_ANIM_MS) {
+  const { player, steps } = state;
+  if (player.phase !== 'normal') return;
+
+  const fromX = getPlayerWorldX();
+  const fromY = getPlayerWorldY();
+
+  const targetIdx = Math.min(
+    player.stepIndex + Math.round(meters * CFG.STEPS_PER_M),
+    steps.length - 1
+  );
+  const destIdx = findSafeStep(targetIdx, player.stepIndex + 1);
+  const toX = steps[destIdx].x;
+  const toY = steps[destIdx].y - CFG.STEP_TOP;
+
+  // stepIndex는 즉시 이동 (게임 로직 기준)
+  player.stepIndex = destIdx;
+
+  if (animMs > 0) {
+    // 상승 애니메이션: getPlayerWorldX/Y가 보간값을 반환 → 카메라가 따라 올라감
+    player.elevating = { fromX, fromY, toX, toY, startAt: Date.now(), durationMs: animMs };
+  } else {
+    // 즉시 이동
+    state.camera.x = toX;
+    state.camera.y = toY;
+  }
+
+  player.teleportFlashAt    = Date.now();
+  player.teleportFlashLabel = `↑ ${meters}m`;
+
+  console.log(`[순간이동] +${meters}m → 계단 ${destIdx}번 (${(destIdx / CFG.STEPS_PER_M).toFixed(1)}m)`);
 }
 
 // =============================================
@@ -189,10 +247,16 @@ function calcDriftY(s) {
 
 // 현재 높이(m)에 따른 채찍 무입력 허용 간격 (ms)
 // 0m → 2000ms, 500m → 200ms 선형 감소, 200ms 하한
+// 진정제 발동 중에는 간격이 2.5배 늘어남 (게이지가 훨씬 천천히 참)
 function getWhipInterval() {
   const height = state.player.stepIndex / CFG.STEPS_PER_M;
-  const t = Math.min(height / CFG.WHIP_HEIGHT_MAX, 1);
-  return CFG.WHIP_N_START - (CFG.WHIP_N_START - CFG.WHIP_N_END) * t;
+  const t      = Math.min(height / CFG.WHIP_HEIGHT_MAX, 1);
+  const base   = CFG.WHIP_N_START - (CFG.WHIP_N_START - CFG.WHIP_N_END) * t;
+  const item   = state.player.activeItem;
+  if (item && item.id === '진정제' && item.endsAt > Date.now()) {
+    return base * CFG.SEDATIVE_MULTIPLIER;
+  }
+  return base;
 }
 
 // 주어진 높이(m)에 해당하는 난이도 구간 파라미터 반환
@@ -288,6 +352,9 @@ const state = {
     cardNotifyAt      : 0,   // 카드 획득 알림 표시 시작 시각
     activeItem          : null,  // 활성 아이템: null | { id, charges } | { id, endsAt }
     parachuteDeployed   : false, // 현재 낙하 중 낙하산이 펼쳐진 상태인지 (착지/게임오버 시 false로 리셋)
+    teleportFlashAt     : 0,    // 순간이동 플래시 시작 시각 (0 = 비활성)
+    teleportFlashLabel  : '',   // 순간이동 플래시 텍스트
+    elevating           : null, // 엘리베이터 상승 애니메이션: null | { fromX, fromY, toX, toY, startAt, durationMs }
   },
   camera: { x: 0, y: 0 },
   quiz: {
@@ -308,8 +375,18 @@ logMapSample(state.map);
 // =============================================
 // 플레이어 발바닥 world-y (phase별)
 // =============================================
+// easeOutCubic: 처음엔 빠르게, 끝에서 부드럽게 감속
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
 function getPlayerWorldY() {
   const { player, steps } = state;
+
+  // 엘리베이터 상승 중: 출발지 → 목적지 Y를 보간해 시각적 위치 반환
+  if (player.elevating) {
+    const t     = Math.min((Date.now() - player.elevating.startAt) / player.elevating.durationMs, 1);
+    const eased = easeOutCubic(t);
+    return player.elevating.fromY + (player.elevating.toY - player.elevating.fromY) * eased;
+  }
 
   if (player.phase === 'normal' || player.phase === 'reviving') {
     return steps[player.stepIndex].y - CFG.STEP_TOP; // 발판 윗면
@@ -330,6 +407,12 @@ function getPlayerWorldY() {
 // 플레이어 x world 좌표 (표류/게임오버엔 driftX 사용)
 function getPlayerWorldX() {
   const { player, steps } = state;
+  // 엘리베이터 상승 중: X도 보간
+  if (player.elevating) {
+    const t     = Math.min((Date.now() - player.elevating.startAt) / player.elevating.durationMs, 1);
+    const eased = easeOutCubic(t);
+    return player.elevating.fromX + (player.elevating.toX - player.elevating.fromX) * eased;
+  }
   if (player.phase === 'drifting' || player.phase === 'gameover') return player.driftX;
   return steps[player.stepIndex].x;
 }
@@ -341,10 +424,11 @@ function getPlayerWorldX() {
 function handleInput(code) {
   const { player, steps, map } = state;
 
-  // 퀴즈 진행 중 또는 0점 패널티 정지 중 또는 부활 연출 중 — 모든 입력 차단
+  // 퀴즈 진행 중 또는 0점 패널티 정지 중 또는 부활 연출 중 또는 엘리베이터 상승 중 — 모든 입력 차단
   if (state.quiz.active) return;
   if (state.quiz.freezeUntil > Date.now()) return;
   if (player.phase === 'reviving') return;
+  if (player.elevating) return;
 
   // 게임오버: 아무 입력이나 재시작
   if (player.phase === 'gameover') {
@@ -361,6 +445,9 @@ function handleInput(code) {
     player.cardNotifyAt       = 0;
     player.activeItem         = null;
     player.parachuteDeployed  = false;
+    player.teleportFlashAt    = 0;
+    player.teleportFlashLabel = '';
+    player.elevating          = null;
     state.quiz.active         = false;
     state.quiz.freezeUntil   = 0;
     state.quiz.nextAt        = state.quiz.questions.length > 0
@@ -564,14 +651,15 @@ function render() {
     let label, pct;
 
     if (item.charges !== undefined) {
-      // 충전식: 잔여 횟수 표시 (낙하산 포함)
-      const maxCharges = ITEM_CHARGES[item.id] || 1;
-      label = `낙하산  x${item.charges}`;
-      pct   = item.charges / maxCharges;
+      // 충전식(낙하산): 잔여 횟수 + 총 유효시간 고정 표시, 바는 시간 기준
+      const info = ITEM_CHARGES[item.id];
+      const rem  = Math.max(item.endsAt - Date.now(), 0);
+      label = `낙하산  x${item.charges}  ${info.durationMs / 1000}초`;
+      pct   = rem / info.durationMs;
     } else {
-      // 시간제: 남은 초 표시
+      // 시간제: 총 지속 시간 고정 표시 + 바로 남은 비율 표현
       const rem = Math.max(item.endsAt - Date.now(), 0);
-      label = `${item.id}  ${(rem / 1000).toFixed(1)}s`;
+      label = `${item.id}  ${CFG.ITEM_DURATION_MS / 1000}초`;
       pct   = rem / CFG.ITEM_DURATION_MS;
     }
 
@@ -592,16 +680,18 @@ function render() {
     const gx = 16, gy = 16;
     const segW = 16, segH = 20, segGap = 3;
 
+    const isSedated = player.activeItem?.id === '진정제' && player.activeItem.endsAt > Date.now();
+
     ctx.font         = 'bold 12px monospace';
     ctx.textAlign    = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillStyle    = 'rgba(255,255,255,0.5)';
+    ctx.fillStyle    = isSedated ? '#4ae0a0' : 'rgba(255,255,255,0.5)';
     ctx.fillText('채찍 게이지', gx, gy);
 
-    // 현재 간격 표시 (작게)
+    // 현재 간격 표시 (작게) — 진정제 활성 시 밝은 청록색으로 강조
     const intervalSec = (getWhipInterval() / 1000).toFixed(1);
     ctx.font      = '11px monospace';
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillStyle = isSedated ? '#4ae0a0' : 'rgba(255,255,255,0.3)';
     ctx.fillText(`(${intervalSec}s)`, gx + 80, gy + 1);
 
     const barY = gy + 18;
@@ -693,6 +783,23 @@ function render() {
       ctx.textBaseline = 'middle';
       ctx.fillStyle    = '#ffd700';
       ctx.fillText('채찍!', W / 2, H / 2 - 60);
+      ctx.globalAlpha  = 1;
+    }
+  }
+
+  // --- 순간이동 플래시 (엘리베이터·사다리·친구따라강남 공용) ---
+  if (player.teleportFlashAt > 0) {
+    const elapsed = Date.now() - player.teleportFlashAt;
+    if (elapsed < 600) {
+      const progress = elapsed / 600;
+      ctx.fillStyle = `rgba(74, 224, 160, ${(1 - progress) * 0.3})`;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha  = 1 - progress;
+      ctx.font         = 'bold 64px sans-serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle    = '#4ae0a0';
+      ctx.fillText(player.teleportFlashLabel, W / 2, H / 2 - 60);
       ctx.globalAlpha  = 1;
     }
   }
@@ -855,15 +962,20 @@ function loop() {
     state.quiz.nextAt      = now + CFG.QUIZ_INTERVAL_MS;
   }
 
-  // 퀴즈 타이머: 문제가 있고 normal 상태에서만 발동
+  // 엘리베이터 상승 애니메이션 종료 확인
+  if (player.elevating && now >= player.elevating.startAt + player.elevating.durationMs) {
+    player.elevating = null;
+  }
+
+  // 퀴즈 타이머: normal 상태이고 엘리베이터 이동 중이 아닐 때만 발동
   if (!state.quiz.active && state.quiz.questions.length > 0 &&
       state.quiz.freezeUntil === 0 && state.quiz.nextAt > 0 &&
-      player.phase === 'normal' && now >= state.quiz.nextAt) {
+      player.phase === 'normal' && !player.elevating && now >= state.quiz.nextAt) {
     startQuiz();
   }
 
-  // 채찍 게이지: normal 상태이고 퀴즈/정지 중이 아닐 때만 누적
-  if (player.phase === 'normal' && !state.quiz.active && state.quiz.freezeUntil === 0) {
+  // 채찍 게이지: normal 상태이고 퀴즈/정지/엘리베이터 이동 중이 아닐 때만 누적
+  if (player.phase === 'normal' && !player.elevating && !state.quiz.active && state.quiz.freezeUntil === 0) {
     // 최초 초기화 (게임 시작 또는 재시작 직후)
     if (player.whipTickAt === 0) player.whipTickAt = now + getWhipInterval();
 
@@ -880,9 +992,10 @@ function loop() {
     }
   }
 
-  // 카메라를 플레이어 위치로 부드럽게 추적 (X·Y 모두)
-  state.camera.x += (getPlayerWorldX() - state.camera.x) * 0.1;
-  state.camera.y += (getPlayerWorldY() - state.camera.y) * 0.1;
+  // 카메라를 플레이어 위치로 부드럽게 추적 (엘리베이터 상승 중엔 빠르게 따라감)
+  const cameraLerp = player.elevating ? 0.25 : 0.1;
+  state.camera.x += (getPlayerWorldX() - state.camera.x) * cameraLerp;
+  state.camera.y += (getPlayerWorldY() - state.camera.y) * cameraLerp;
 
   render();
   requestAnimationFrame(loop);
