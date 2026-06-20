@@ -28,6 +28,10 @@ const CFG = {
   FALL_ACCEL      : 150,   // 표류 가속도 계수 (px/s²)
   FALL_LOCK_DROP  : 500,   // 추락 잠금 동안 낙하 거리 (px)
   REVIVE_MS       : 1000,  // 부활 메시지 표시 및 입력 정지 시간 (ms)
+  ITEM_DURATION_MS      : 30000, // 아이템 지속 시간 (30초)
+  PARACHUTE_FALL_V0     : 90,    // 낙하산 발동 중 표류 초기 하강 속도 (px/s)
+  PARACHUTE_FALL_ACCEL  : 25,    // 낙하산 발동 중 표류 가속도 (px/s²)
+  PARACHUTE_LOCK_DROP   : 120,   // 낙하산 발동 중 추락 잠금 낙하 거리 (px)
 };
 
 // false로 바꾸면 디버그 패널 완전히 숨김
@@ -43,6 +47,8 @@ const Q_COL = { NUM: 0, TYPE: 1, CONTENT: 2, IMAGE: 3, ANSWER: 4, OPT_START: 5 }
 const ITEM_POOL = {
   고급: [
     { id: '낙하산',      weight: 1 },
+    { id: '낙하산2개',   weight: 1 },
+    { id: '낙하산3개',   weight: 1 },
     { id: '진정제',      weight: 1 },
     { id: '엘리베이터',  weight: 1 },
     { id: '친구따라강남', weight: 1 },
@@ -57,12 +63,21 @@ const ITEM_POOL = {
   ],
 };
 
+// 충전식 아이템 — id별 최대 사용 횟수 (이 목록에 없으면 시간제 아이템)
+const ITEM_CHARGES = {
+  '낙하산'   : 1,
+  '낙하산2개': 2,
+  '낙하산3개': 3,
+};
+
 // =============================================
 // 아이템 효과 핸들러 — 4단계에서 하나씩 구현
 // 디버그 패널과 카드 UI 모두 useItem()을 통해 발동
 // =============================================
 const ITEM_HANDLERS = {
-  '낙하산'     : () => { console.log('[아이템] 낙하산 발동 — 미구현'); },
+  '낙하산'     : () => { activateItem('낙하산'); },
+  '낙하산2개'  : () => { activateItem('낙하산2개'); },
+  '낙하산3개'  : () => { activateItem('낙하산3개'); },
   '진정제'     : () => { console.log('[아이템] 진정제 발동 — 미구현'); },
   '엘리베이터' : () => { console.log('[아이템] 엘리베이터 발동 — 미구현'); },
   '친구따라강남': () => { console.log('[아이템] 친구따라강남 발동 — 미구현'); },
@@ -81,6 +96,38 @@ function useItem(id) {
     handler();
   } else {
     console.warn('[아이템] 알 수 없는 아이템:', id);
+  }
+}
+
+// 현재 보유한 아이템이 활성 상태인지 확인 (충전식: 잔여 횟수 > 0, 시간제: 만료 전)
+function isItemActive() {
+  const item = state.player.activeItem;
+  if (!item) return false;
+  if (item.charges !== undefined) return item.charges > 0;
+  return item.endsAt !== undefined && item.endsAt > Date.now();
+}
+
+// 아이템 활성화 — 충전식(낙하산류)은 횟수로, 나머지는 시간으로 관리
+// 이미 활성 아이템이 있으면 교체 여부를 물어봄 (중첩 불가)
+function activateItem(id) {
+  const now = Date.now();
+  if (isItemActive()) {
+    const cur = state.player.activeItem;
+    const curLabel = cur.charges !== undefined
+      ? `'${cur.id}' (${cur.charges}회 남음)`
+      : `'${cur.id}' (${Math.ceil((cur.endsAt - now) / 1000)}초 남음)`;
+    const ok = confirm(`${curLabel} 효과가 남아있습니다.\n'${id}'(으)로 교체하시겠습니까?`);
+    if (!ok) return;
+  }
+  const charges = ITEM_CHARGES[id];
+  if (charges !== undefined) {
+    // 충전식 — 낙하 때마다 1회 소모, 0이 되면 자동 제거
+    state.player.activeItem = { id, charges };
+    console.log(`[아이템] ${id} 활성화 — ${charges}회`);
+  } else {
+    // 시간제 — 30초 후 만료
+    state.player.activeItem = { id, endsAt: now + CFG.ITEM_DURATION_MS };
+    console.log(`[아이템] ${id} 활성화 — ${CFG.ITEM_DURATION_MS / 1000}초`);
   }
 }
 
@@ -115,6 +162,29 @@ function createRNG(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 0x100000000;
   };
+}
+
+// 낙하산이 현재 펼쳐져 있는지 (이번 낙하에 실제 발동 중)
+function hasParachute() {
+  return state.player.parachuteDeployed;
+}
+
+// activeItem이 낙하산류(충전식)인지 확인
+function isParachuteItem(id) {
+  return id in ITEM_CHARGES;
+}
+
+// 추락 잠금 동안 낙하할 거리 (낙하산 여부 반영)
+function calcLockDrop() {
+  return hasParachute() ? CFG.PARACHUTE_LOCK_DROP : CFG.FALL_LOCK_DROP;
+}
+
+// 표류 경과 시간 s(초)에 따른 발바닥 world-y (낙하산 여부 반영)
+// player.driftY 기준 상대 좌표
+function calcDriftY(s) {
+  const v0    = hasParachute() ? CFG.PARACHUTE_FALL_V0    : CFG.FALL_V0;
+  const accel = hasParachute() ? CFG.PARACHUTE_FALL_ACCEL : CFG.FALL_ACCEL;
+  return state.player.driftY + v0 * s + accel * s * s;
 }
 
 // 현재 높이(m)에 따른 채찍 무입력 허용 간격 (ms)
@@ -216,6 +286,8 @@ const state = {
     reviveEndsAt      : 0,   // 부활 연출 종료 만료 시각 (0 = 비활성)
     pendingCard       : null, // 보유 중인 카드: null | 'normal' | 'premium' (4단계에서 사용)
     cardNotifyAt      : 0,   // 카드 획득 알림 표시 시작 시각
+    activeItem          : null,  // 활성 아이템: null | { id, charges } | { id, endsAt }
+    parachuteDeployed   : false, // 현재 낙하 중 낙하산이 펼쳐진 상태인지 (착지/게임오버 시 false로 리셋)
   },
   camera: { x: 0, y: 0 },
   quiz: {
@@ -245,11 +317,11 @@ function getPlayerWorldY() {
   if (player.phase === 'falling_locked') {
     const elapsed = CFG.FALL_LOCK_MS - Math.max(player.fallLockEndsAt - Date.now(), 0);
     const t = elapsed / CFG.FALL_LOCK_MS;
-    return (player.fallFromY - CFG.STEP_TOP) + t * CFG.FALL_LOCK_DROP;
+    return (player.fallFromY - CFG.STEP_TOP) + t * calcLockDrop();
   }
   if (player.phase === 'drifting') {
     const s = (Date.now() - player.driftStartAt) / 1000;
-    return player.driftY + CFG.FALL_V0 * s + CFG.FALL_ACCEL * s * s;
+    return calcDriftY(s);
   }
   // gameover: driftY에 최종 위치가 저장돼 있음
   return player.driftY;
@@ -285,9 +357,11 @@ function handleInput(code) {
     player.reviveEndsAt      = 0;
     state.camera.x           = 0;
     state.camera.y           = 0;
-    player.pendingCard       = null;
-    player.cardNotifyAt      = 0;
-    state.quiz.active        = false;
+    player.pendingCard        = null;
+    player.cardNotifyAt       = 0;
+    player.activeItem         = null;
+    player.parachuteDeployed  = false;
+    state.quiz.active         = false;
     state.quiz.freezeUntil   = 0;
     state.quiz.nextAt        = state.quiz.questions.length > 0
       ? Date.now() + CFG.QUIZ_INTERVAL_MS : 0;
@@ -317,6 +391,16 @@ function handleInput(code) {
     player.fallFromY          = steps[player.stepIndex].y;
     player.fallFromStepIndex  = player.stepIndex; // 추락 시작 발판 기록
     player.fallLockEndsAt     = Date.now() + CFG.FALL_LOCK_MS;
+
+    // 낙하산 즉시 발동 — falling_locked 단계부터 느린 낙하 적용
+    const item = player.activeItem;
+    if (item && isParachuteItem(item.id) && item.charges > 0) {
+      player.parachuteDeployed = true;
+      item.charges--;
+      const remaining = item.charges;
+      if (remaining <= 0) player.activeItem = null;
+      console.log(`[낙하산] 발동! 잔여 ${remaining}회`);
+    }
   }
 }
 
@@ -442,7 +526,13 @@ function render() {
   const PH     = CFG.PLAYER_H;
   const top    = toSy(feetY) - PH;
 
-  const PLAYER_COLOR = { normal: '#ff4757', falling_locked: '#888', drifting: '#ffb347', gameover: '#666' };
+  const isDriftingWithChute = player.phase === 'drifting' && hasParachute();
+  const PLAYER_COLOR = {
+    normal        : '#ff4757',
+    falling_locked: '#888',
+    drifting      : isDriftingWithChute ? '#b06eff' : '#ffb347',
+    gameover      : '#666',
+  };
   ctx.fillStyle = PLAYER_COLOR[player.phase] || '#ff4757';
   ctx.fillRect(px - PW / 2, top, PW, PH);
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
@@ -450,6 +540,52 @@ function render() {
   ctx.fillStyle = '#fff';
   ctx.fillRect(px - 10, top + 8, 6, 6);
   ctx.fillRect(px + 4,  top + 8, 6, 6);
+
+  // 낙하산 캐노피 — 표류 중 낙하산 활성화 시 플레이어 위에 표시
+  if (isDriftingWithChute) {
+    const chuteY = top - 12;
+    ctx.beginPath();
+    ctx.arc(px, chuteY, 22, Math.PI, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(176, 110, 255, 0.75)';
+    ctx.fill();
+    ctx.strokeStyle = '#b06eff';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(px - 22, chuteY); ctx.lineTo(px - PW / 2, top);
+    ctx.moveTo(px + 22, chuteY); ctx.lineTo(px + PW / 2, top);
+    ctx.stroke();
+  }
+
+  // --- 활성 아이템 HUD (화면 상단 중앙) ---
+  if (player.activeItem) {
+    const item  = player.activeItem;
+    const ix    = W / 2, iy = 12;
+    const barW  = 140, barH = 5;
+    let label, pct;
+
+    if (item.charges !== undefined) {
+      // 충전식: 잔여 횟수 표시 (낙하산 포함)
+      const maxCharges = ITEM_CHARGES[item.id] || 1;
+      label = `낙하산  x${item.charges}`;
+      pct   = item.charges / maxCharges;
+    } else {
+      // 시간제: 남은 초 표시
+      const rem = Math.max(item.endsAt - Date.now(), 0);
+      label = `${item.id}  ${(rem / 1000).toFixed(1)}s`;
+      pct   = rem / CFG.ITEM_DURATION_MS;
+    }
+
+    ctx.font         = 'bold 14px sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle    = '#b06eff';
+    ctx.fillText(label, ix, iy);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(ix - barW / 2, iy + 20, barW, barH);
+    ctx.fillStyle = '#b06eff';
+    ctx.fillRect(ix - barW / 2, iy + 20, barW * pct, barH);
+  }
 
   // --- 채찍 게이지 바 (좌상단) ---
   if (player.phase === 'normal' || player.phase === 'falling_locked' || player.phase === 'reviving') {
@@ -661,8 +797,8 @@ function loop() {
   if (player.phase === 'falling_locked' && now >= player.fallLockEndsAt) {
     player.phase        = 'drifting';
     player.driftX       = steps[player.stepIndex].x;
-    // 잠금 동안 낙하한 발바닥 y를 표류 시작점으로 사용
-    player.driftY       = (player.fallFromY - CFG.STEP_TOP) + CFG.FALL_LOCK_DROP;
+    // 잠금 동안 낙하한 발바닥 y를 표류 시작점으로 사용 (낙하산 시 더 적게 낙하)
+    player.driftY       = (player.fallFromY - CFG.STEP_TOP) + calcLockDrop();
     player.driftStartAt = now;
     player.driftEndsAt  = now + CFG.DRIFT_SECONDS * 1000;
   }
@@ -670,7 +806,7 @@ function loop() {
   // 표류 중: 착지 판정 + 시간 초과
   if (player.phase === 'drifting') {
     const s        = (now - player.driftStartAt) / 1000;
-    const feetY    = player.driftY + CFG.FALL_V0 * s + CFG.FALL_ACCEL * s * s;
+    const feetY    = calcDriftY(s);
 
     for (let i = 0; i < steps.length; i++) {
       const step     = steps[i];
@@ -688,14 +824,16 @@ function loop() {
       player.fallFromStepIndex  = -1;
       player.reviveEndsAt       = now + CFG.REVIVE_MS;
       player.whipTickAt         = player.reviveEndsAt + getWhipInterval(); // 부활 후 채찍 타이머 시작
+      player.parachuteDeployed  = false; // 착지: 낙하산 접기
       break;
     }
 
     // 5초 초과 → 게임오버 (driftY를 현재 위치로 고정)
     if (player.phase === 'drifting' && now >= player.driftEndsAt) {
-      const s2       = (now - player.driftStartAt) / 1000;
-      player.driftY  = player.driftY + CFG.FALL_V0 * s2 + CFG.FALL_ACCEL * s2 * s2;
-      player.phase   = 'gameover';
+      const s2                 = (now - player.driftStartAt) / 1000;
+      player.driftY            = calcDriftY(s2);
+      player.phase             = 'gameover';
+      player.parachuteDeployed = false; // 게임오버: 낙하산 접기
     }
   }
 
@@ -703,6 +841,12 @@ function loop() {
   if (player.phase === 'reviving' && now >= player.reviveEndsAt) {
     player.phase        = 'normal';
     player.reviveEndsAt = 0;
+  }
+
+  // 시간제 아이템 만료 확인 (충전식 낙하산은 횟수 소모로 관리하므로 제외)
+  if (player.activeItem && player.activeItem.endsAt !== undefined && player.activeItem.endsAt <= now) {
+    console.log(`[아이템] ${player.activeItem.id} 만료`);
+    player.activeItem = null;
   }
 
   // 퀴즈 0점 패널티 정지 종료
