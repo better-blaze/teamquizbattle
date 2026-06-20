@@ -38,6 +38,16 @@
       <button onclick="useItem('꽝')">꽝</button>
       <button onclick="useItem('폭죽')">폭죽</button>
     </div>
+    <div class="debugGroup">
+      <div class="debugLabel">저주 (전체 흐름)</div>
+      <button onclick="useItem('거울의 저주')">거울의 저주</button>
+      <button onclick="useItem('암흑의 저주')">암흑의 저주</button>
+    </div>
+    <div class="debugGroup">
+      <div class="debugLabel">저주 (즉시 효과만)</div>
+      <button onclick="activateCurseEffect('거울의 저주')">거울 즉시</button>
+      <button onclick="activateCurseEffect('암흑의 저주')">암흑 즉시</button>
+    </div>
   </div>
 
   <!-- 문제 업로드 버튼 -->
@@ -45,6 +55,19 @@
     <label id="uploadBtn" for="xlsxInput">문제 업로드</label>
     <input type="file" id="xlsxInput" accept=".xlsx,.xls" />
     <span id="uploadStatus">문제 없음</span>
+  </div>
+
+  <!-- 저주 확인 오버레이 -->
+  <div id="curseConfirmOverlay" class="hidden">
+    <div id="curseConfirmPanel">
+      <div id="curseConfirmTitle">⚠ 저주를 거시겠습니까?</div>
+      <div id="curseConfirmName">거울의 저주</div>
+      <div id="curseConfirmTimer">5</div>
+      <div id="curseConfirmBtns">
+        <button id="curseConfirmYes">예 — 저주!</button>
+        <button id="curseConfirmNo">아니요</button>
+      </div>
+    </div>
   </div>
 
   <!-- 친구따라강남 오버레이 (6단계에서 플레이어 선택 UI로 교체 예정) -->

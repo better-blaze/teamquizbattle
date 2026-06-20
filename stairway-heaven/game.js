@@ -34,6 +34,14 @@ const CFG = {
   PARACHUTE_FALL_ACCEL  : 25,    // 낙하산 발동 중 표류 가속도 (px/s²)
   PARACHUTE_LOCK_DROP   : 120,   // 낙하산 발동 중 추락 잠금 낙하 거리 (px)
   ELEVATOR_ANIM_MS      : 700,   // 엘리베이터 상승 카메라 애니메이션 시간 (ms)
+  // ── 저주 계열 ───────────────────────────────
+  CURSE_CONFIRM_MS  : 5000,  // "저주를 거시겠습니까?" 확인 창 제한 시간 (ms)
+  CURSE_COUNTDOWN_S : 3,     // "저주가 시작됩니다." 카운트다운 초 수
+  CURSE_MIRROR_MS   : 3000,  // 거울의 저주 지속 시간 (ms)
+  CURSE_DARK_MS     : 6000,  // 암흑의 저주 지속 시간 (ms)
+  CURSE_DARK_PERIOD : 300,   // 암흑의 저주 — 어두운 시간 (ms) ← 나중에 여기서 조정
+  CURSE_LIGHT_PERIOD: 400,   // 암흑의 저주 — 밝은 시간 (ms)
+  CURSE_MERCY_MS    : 3000,  // "자비를 베푸셨습니다" 메시지 표시 시간 (ms)
 };
 
 // false로 바꾸면 디버그 패널 완전히 숨김
@@ -58,10 +66,12 @@ const ITEM_POOL = {
     { id: '자율주행',    weight: 1 },
   ],
   일반: [
-    { id: '사다리', weight: 1 },
-    { id: '당근',   weight: 1 },
-    { id: '꽝',     weight: 2 }, // 꽝이 더 자주 나오도록 기본값 2
-    { id: '폭죽',   weight: 1 },
+    { id: '사다리',      weight: 1 },
+    { id: '당근',        weight: 1 },
+    { id: '꽝',          weight: 2 },   // 꽝이 더 자주 나오도록 기본값 2
+    { id: '폭죽',        weight: 1 },
+    { id: '거울의 저주', weight: 0.5 }, // 저주 계열 — 낮은 확률
+    { id: '암흑의 저주', weight: 0.5 }, // 저주 계열 — 낮은 확률
   ],
 };
 
@@ -89,6 +99,8 @@ const ITEM_HANDLERS = {
   '당근'       : () => { console.log('[아이템] 당근 발동 — 미구현'); },
   '꽝'         : () => { console.log('[아이템] 꽝 — 무효과'); },
   '폭죽'       : () => { console.log('[아이템] 폭죽 발동 — 미구현'); },
+  '거울의 저주': () => { startCurseConfirm('거울의 저주'); },
+  '암흑의 저주': () => { startCurseConfirm('암흑의 저주'); },
 };
 
 // 아이템 발동 진입점 — 디버그 패널·카드 UI 모두 이 함수 하나를 호출
@@ -225,6 +237,75 @@ function showFriendFollowOverlay() {
 function hideFriendFollowOverlay() {
   state.friendFollow.active = false;
   document.getElementById('friendFollowOverlay').classList.add('hidden');
+}
+
+// =============================================
+// 저주 계열 — 4단계는 자기 화면에 적용 (6단계에서 대상을 연결)
+// =============================================
+
+// 현재 저주 프로세스(확인·카운트다운·효과)가 진행 중인지
+function isCurseInProgress() {
+  const c = state.curse;
+  return c.confirmActive || c.countdownActive || c.active !== null;
+}
+
+// 저주 확인 창 표시 — 이미 진행 중이면 대기열에 추가
+function startCurseConfirm(itemId) {
+  if (isCurseInProgress()) {
+    state.curse.queue.push(itemId);
+    console.log(`[저주] ${itemId} 대기열 추가 (대기: ${state.curse.queue.length}개)`);
+    return;
+  }
+  state.curse.confirmActive = true;
+  state.curse.confirmItem   = itemId;
+  state.curse.confirmEndsAt = Date.now() + CFG.CURSE_CONFIRM_MS;
+
+  document.getElementById('curseConfirmName').textContent = itemId;
+  document.getElementById('curseConfirmOverlay').classList.remove('hidden');
+  console.log(`[저주] ${itemId} 확인 창 표시 (${CFG.CURSE_CONFIRM_MS / 1000}초 제한)`);
+}
+
+// "예" 선택 — 카운트다운 시작
+function commitCurse() {
+  const itemId = state.curse.confirmItem;
+  state.curse.confirmActive = false;
+  document.getElementById('curseConfirmOverlay').classList.add('hidden');
+
+  state.curse.countdownActive = true;
+  state.curse.countdownItem   = itemId;
+  state.curse.countdownUntil  = Date.now() + CFG.CURSE_COUNTDOWN_S * 1000;
+  console.log(`[저주] ${itemId} 카운트다운 시작`);
+}
+
+// "아니요" 선택 또는 시간 초과 — 자비 메시지 표시
+function cancelCurse() {
+  state.curse.confirmActive = false;
+  document.getElementById('curseConfirmOverlay').classList.add('hidden');
+
+  state.curse.mercyAt   = Date.now();
+  // 6단계에서 state.curse.mercyName에 실제 플레이어 이름을 설정
+  console.log(`[저주] 취소 → ${state.curse.mercyName}님이 자비를 베푸셨습니다.`);
+
+  // 큐에 다음 저주가 있으면 자비 메시지 후 처리
+  if (state.curse.queue.length > 0) {
+    setTimeout(processNextCurse, CFG.CURSE_MERCY_MS + 300);
+  }
+}
+
+// 카운트다운 종료 → 실제 효과 발동
+function activateCurseEffect(itemId) {
+  state.curse.countdownActive = false;
+  const duration = itemId === '거울의 저주' ? CFG.CURSE_MIRROR_MS : CFG.CURSE_DARK_MS;
+  state.curse.active = { id: itemId, startAt: Date.now(), endsAt: Date.now() + duration };
+  console.log(`[저주] ${itemId} 효과 발동 (${duration / 1000}초)`);
+}
+
+// 효과 종료 후 대기열의 다음 저주를 처리
+function processNextCurse() {
+  if (state.curse.queue.length > 0) {
+    const nextId = state.curse.queue.shift();
+    startCurseConfirm(nextId);
+  }
 }
 
 // 디버그 패널 전용: 높이 입력 후 즉시 이동 테스트
@@ -403,6 +484,18 @@ const state = {
   },
   camera: { x: 0, y: 0 },
   friendFollow: { active: false }, // 친구따라강남 오버레이 활성 여부
+  curse: {
+    confirmActive  : false,  // "저주를 거시겠습니까?" 확인 창 활성
+    confirmItem    : '',     // 확인 중인 저주 아이템 id
+    confirmEndsAt  : 0,      // 확인 창 자동 취소 만료 시각
+    countdownActive: false,  // "저주가 시작됩니다." 카운트다운 활성
+    countdownItem  : '',     // 카운트다운 중인 저주 아이템 id
+    countdownUntil : 0,      // 카운트다운 종료 만료 시각
+    active         : null,   // 진행 중인 저주: null | { id, startAt, endsAt }
+    queue          : [],     // 대기 중인 저주 id 배열 (순차 처리)
+    mercyAt        : 0,      // "자비를 베푸셨습니다" 메시지 시작 시각 (0 = 비활성)
+    mercyName      : '나',   // 자비를 베푼 플레이어 이름 (6단계에서 실제 이름으로 교체)
+  },
   quiz: {
     questions   : [],   // 파싱된 전체 문제 배열
     queue       : [],   // 남은 출제 큐 (셔플 순서)
@@ -497,6 +590,13 @@ function handleInput(code) {
     player.elevating          = null;
     state.friendFollow.active = false;
     hideFriendFollowOverlay();
+    // 저주 상태 완전 초기화
+    state.curse.confirmActive   = false;
+    state.curse.countdownActive = false;
+    state.curse.active          = null;
+    state.curse.queue           = [];
+    state.curse.mercyAt         = 0;
+    document.getElementById('curseConfirmOverlay').classList.add('hidden');
     state.quiz.active         = false;
     state.quiz.freezeUntil   = 0;
     state.quiz.nextAt        = state.quiz.questions.length > 0
@@ -577,6 +677,10 @@ function render() {
   const W = canvas.width;
   const H = canvas.height;
   const { steps, player, camera, map } = state;
+
+  // 거울의 저주: 캔버스 전체를 좌우반전 (게임 콘텐츠 + HUD 포함)
+  const isMirror = state.curse.active?.id === '거울의 저주';
+  if (isMirror) { ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1); }
 
   // 배경
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -940,6 +1044,54 @@ function render() {
     ctx.fillStyle = 'rgba(255,255,255,0.65)';
     ctx.fillText('아무 키나 누르면 다시 시작', W / 2, H / 2 + 30);
   }
+
+  // 거울의 저주 transform 해제 (이후 효과는 뒤집히지 않음)
+  if (isMirror) ctx.restore();
+
+  // ── 저주 사후 효과 (mirror 해제 후 그려 반전 영향 없음) ───────────
+
+  // 암흑의 저주: CURSE_DARK_PERIOD ms 어둡고 CURSE_LIGHT_PERIOD ms 밝음을 반복
+  if (state.curse.active?.id === '암흑의 저주') {
+    const elapsed = Date.now() - state.curse.active.startAt;
+    const cycle   = CFG.CURSE_DARK_PERIOD + CFG.CURSE_LIGHT_PERIOD;
+    if (elapsed % cycle < CFG.CURSE_DARK_PERIOD) {
+      ctx.fillStyle = 'rgba(0,0,0,0.99)';
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  // 저주 카운트다운 오버레이 ("저주가 시작됩니다. 3/2/1")
+  if (state.curse.countdownActive) {
+    const rem  = Math.max(state.curse.countdownUntil - Date.now(), 0);
+    const secs = Math.ceil(rem / 1000);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font         = 'bold 26px sans-serif';
+    ctx.fillStyle    = '#ff4757';
+    ctx.fillText('저주가 시작됩니다...', W / 2, H / 2 - 50);
+    ctx.font      = 'bold 90px sans-serif';
+    ctx.fillText(String(secs), W / 2, H / 2 + 30);
+  }
+
+  // "자비를 베푸셨습니다" 메시지 (페이드인 → 페이드아웃)
+  if (state.curse.mercyAt > 0) {
+    const elapsed = Date.now() - state.curse.mercyAt;
+    const alpha   = elapsed < 400
+      ? elapsed / 400
+      : elapsed > CFG.CURSE_MERCY_MS - 400
+        ? (CFG.CURSE_MERCY_MS - elapsed) / 400
+        : 1;
+    ctx.save();
+    ctx.globalAlpha  = Math.max(0, alpha);
+    ctx.font         = 'bold 22px sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = '#ffd700';
+    ctx.fillText(`${state.curse.mercyName}님이 자비를 베푸셨습니다.`, W / 2, H / 4);
+    ctx.restore();
+  }
 }
 
 // =============================================
@@ -1003,6 +1155,31 @@ function loop() {
   if (player.activeItem && player.activeItem.endsAt !== undefined && player.activeItem.endsAt <= now) {
     console.log(`[아이템] ${player.activeItem.id} 만료`);
     player.activeItem = null;
+  }
+
+  // ── 저주 상태 머신 ──────────────────────────────
+  // 확인 창 타이머 갱신 및 자동 취소
+  if (state.curse.confirmActive) {
+    const remaining = Math.max(state.curse.confirmEndsAt - now, 0);
+    const timerEl   = document.getElementById('curseConfirmTimer');
+    if (timerEl) timerEl.textContent = Math.ceil(remaining / 1000);
+    if (now >= state.curse.confirmEndsAt) cancelCurse(); // 시간 초과 → 자비
+  }
+
+  // 카운트다운 종료 → 효과 발동
+  if (state.curse.countdownActive && now >= state.curse.countdownUntil) {
+    activateCurseEffect(state.curse.countdownItem);
+  }
+
+  // 효과 종료 → 대기열 처리
+  if (state.curse.active && now >= state.curse.active.endsAt) {
+    state.curse.active = null;
+    processNextCurse();
+  }
+
+  // "자비" 메시지 자동 소멸
+  if (state.curse.mercyAt > 0 && now - state.curse.mercyAt >= CFG.CURSE_MERCY_MS) {
+    state.curse.mercyAt = 0;
   }
 
   // 퀴즈 0점 패널티 정지 종료
@@ -1417,3 +1594,10 @@ document.getElementById('friendFollowCancel').addEventListener('click', hideFrie
 document.getElementById('friendFollowInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('friendFollowConfirm').click();
 });
+
+// =============================================
+// 저주 확인 창 이벤트
+// =============================================
+
+document.getElementById('curseConfirmYes').addEventListener('click', commitCurse);
+document.getElementById('curseConfirmNo').addEventListener('click', cancelCurse);

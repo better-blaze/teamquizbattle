@@ -276,6 +276,84 @@ html, body {
 #debugPanel button:last-child { margin-bottom: 0; }
 
 /* =============================================
+   저주 확인 오버레이
+   ============================================= */
+#curseConfirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 110; /* 친구따라강남 오버레이보다 위 */
+}
+
+#curseConfirmPanel {
+  background: #1a0a0a;
+  border: 2px solid rgba(255, 71, 87, 0.5);
+  border-radius: 16px;
+  padding: 30px 34px;
+  width: 320px;
+  color: #fff;
+  font-family: sans-serif;
+  text-align: center;
+}
+
+#curseConfirmTitle {
+  font-size: 16px;
+  color: rgba(255,255,255,0.55);
+  margin-bottom: 8px;
+}
+
+#curseConfirmName {
+  font-size: 26px;
+  font-weight: bold;
+  color: #ff4757;
+  margin-bottom: 16px;
+}
+
+#curseConfirmTimer {
+  font-size: 48px;
+  font-weight: bold;
+  color: #ff8a00;
+  line-height: 1;
+  margin-bottom: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+#curseConfirmBtns {
+  display: flex;
+  gap: 10px;
+}
+
+#curseConfirmYes {
+  flex: 1;
+  padding: 11px;
+  background: #ff4757;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#curseConfirmYes:hover { background: #e03040; }
+
+#curseConfirmNo {
+  flex: 1;
+  padding: 11px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 10px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#curseConfirmNo:hover { background: rgba(255,255,255,0.16); }
+
+/* =============================================
    친구따라강남 오버레이
    ============================================= */
 #friendFollowOverlay {
