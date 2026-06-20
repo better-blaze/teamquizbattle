@@ -248,6 +248,85 @@ function hideFriendFollowOverlay() {
 }
 
 // =============================================
+// 5단계 — 관리자 기능
+// =============================================
+
+// 더미 플레이어 이름·색상 풀
+const DUMMY_NAMES  = ['김민준', '이서연', '박지호', '최수아', '정우진', '한나라', '오민서', '윤채원',
+                      '송하은', '임도윤', '강지유', '조서준'];
+const DUMMY_COLORS = ['#4a9eff', '#4ae0a0', '#ff9f43', '#b06eff', '#26de81', '#fd9644', '#ff6b81', '#a29bfe'];
+
+// 시작 높이 설정 + 즉시 이동 (normal 상태엔 teleportToHeight, 아니면 카메라 직접 이동)
+function adminGotoHeight() {
+  const h = parseFloat(document.getElementById('adminStartHeight').value) || 0;
+  state.admin.startHeight = h;
+  const idx = Math.min(Math.round(h * CFG.STEPS_PER_M), state.steps.length - 1);
+  if (state.player.phase === 'normal') {
+    teleportToHeight(h);
+  } else {
+    // gameover·falling 상태에서도 강제 이동
+    state.player.stepIndex = idx;
+    state.camera.x = state.steps[idx].x;
+    state.camera.y = state.steps[idx].y - CFG.STEP_TOP;
+  }
+  console.log(`[관리자] ${h}m로 이동 (다음 시작 높이도 ${h}m로 설정)`);
+}
+
+// 테스트 모드 토글 (채찍·퀴즈 비활성)
+function adminToggleTestMode() {
+  state.admin.testMode = document.getElementById('adminTestMode').checked;
+  if (state.admin.testMode) {
+    state.player.whipGauge = 0;      // 게이지 즉시 초기화
+    state.player.whipTickAt = 0;
+  }
+  console.log(`[관리자] 테스트 모드 ${state.admin.testMode ? 'ON (채찍·퀴즈 비활성)' : 'OFF'}`);
+}
+
+// 아이템 강제 적용 (5단계: 로컬 플레이어, 6단계에서 대상 플레이어로 확장)
+function adminForceItem() {
+  const id = document.getElementById('adminItemSelect').value;
+  if (id) useItem(id);
+}
+
+// 더미 플레이어 N명 추가 생성
+function adminAddDummies() {
+  const n      = Math.max(1, parseInt(document.getElementById('adminDummyCount').value) || 1);
+  const maxPos = Math.max(state.player.stepIndex, CFG.STEPS_PER_M * 5);
+  for (let i = 0; i < n; i++) {
+    const idx = state.dummyPlayers.length;
+    state.dummyPlayers.push({
+      id          : `dummy_${Date.now()}_${i}`,
+      name        : DUMMY_NAMES[idx % DUMMY_NAMES.length],
+      stepPos     : Math.random() * maxPos,
+      stepsPerSec : 0.4 + Math.random() * 1.8,  // 0.4~2.2 steps/sec
+      lastUpdateAt: Date.now(),
+      color       : DUMMY_COLORS[idx % DUMMY_COLORS.length],
+    });
+  }
+  document.getElementById('adminDummyStatus').textContent = `${state.dummyPlayers.length}명`;
+  console.log(`[관리자] 더미 ${n}명 추가 → 총 ${state.dummyPlayers.length}명`);
+}
+
+// 더미 플레이어 전체 삭제
+function adminClearDummies() {
+  state.dummyPlayers = [];
+  document.getElementById('adminDummyStatus').textContent = '0명';
+  console.log('[관리자] 더미 플레이어 전체 삭제');
+}
+
+// 아이템 드롭다운 초기화 (페이지 로드 시 1회 호출)
+function initAdminItemSelect() {
+  const sel  = document.getElementById('adminItemSelect');
+  const all  = [...ITEM_POOL.고급, ...ITEM_POOL.일반];
+  all.forEach(({ id }) => {
+    const opt       = document.createElement('option');
+    opt.value       = id;
+    opt.textContent = id;
+    sel.appendChild(opt);
+  });
+}
+
+// =============================================
 // 폭죽 파티클
 // =============================================
 
@@ -518,6 +597,11 @@ const state = {
   },
   camera: { x: 0, y: 0 },
   fireworks   : [], // 폭죽 파티클 배열: [{ worldX, worldY, vx, vy, color, spawnedAt, lifetime }]
+  dummyPlayers: [], // 더미 플레이어 배열 (5단계 부하 테스트용): [{ id, name, stepPos, stepsPerSec, lastUpdateAt, color }]
+  admin: {
+    testMode   : false, // 테스트 모드: 채찍·퀴즈 비활성화
+    startHeight: 0,     // 다음 게임 시작 높이 (m) — 0이면 0번 계단에서 시작
+  },
   friendFollow: { active: false }, // 친구따라강남 오버레이 활성 여부
   curse: {
     confirmActive  : false,  // "저주를 거시겠습니까?" 확인 창 활성
@@ -626,6 +710,13 @@ function handleInput(code) {
     player.autoInputAt        = 0;
     state.fireworks           = [];
     state.friendFollow.active = false;
+    // 관리자 시작 높이 설정 적용
+    if (state.admin.startHeight > 0) {
+      const startIdx   = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
+      player.stepIndex = startIdx;
+      state.camera.x   = state.steps[startIdx].x;
+      state.camera.y   = state.steps[startIdx].y - CFG.STEP_TOP;
+    }
     hideFriendFollowOverlay();
     // 저주 상태 완전 초기화
     state.curse.confirmActive   = false;
@@ -835,6 +926,28 @@ function render() {
     ctx.moveTo(px - 22, chuteY); ctx.lineTo(px - PW / 2, top);
     ctx.moveTo(px + 22, chuteY); ctx.lineTo(px + PW / 2, top);
     ctx.stroke();
+  }
+
+  // --- 더미 플레이어 (게임 월드 내 — 6단계 실제 플레이어 렌더 자리) ---
+  for (const d of state.dummyPlayers) {
+    const dIdx = Math.floor(d.stepPos);
+    if (dIdx >= steps.length) continue;
+    const step = steps[dIdx];
+    const dsx  = toSx(step.x);
+    const dsy  = toSy(step.y - CFG.STEP_TOP) - CFG.PLAYER_H;
+    if (dsy < -60 || dsy > H + 60) continue; // 화면 밖 건너뜀
+    ctx.fillStyle = d.color;
+    ctx.fillRect(dsx - CFG.PLAYER_W / 2, dsy, CFG.PLAYER_W, CFG.PLAYER_H);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillRect(dsx - CFG.PLAYER_W / 2, dsy, CFG.PLAYER_W, 4);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(dsx - 10, dsy + 8, 6, 6);
+    ctx.fillRect(dsx + 4,  dsy + 8, 6, 6);
+    ctx.font         = 'bold 10px sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle    = d.color;
+    ctx.fillText(d.name, dsx, dsy - 2);
   }
 
   // --- 폭죽 파티클 ---
@@ -1128,6 +1241,49 @@ function render() {
   // 거울의 저주 transform 해제 (이후 효과는 뒤집히지 않음)
   if (isMirror) ctx.restore();
 
+  // --- 랭킹 패널 (더미 플레이어 있을 때 우측 상단) ---
+  if (state.dummyPlayers.length > 0) {
+    const allPlayers = [
+      { name: '나', stepIndex: player.stepIndex, color: '#ff4757' },
+      ...state.dummyPlayers.map(d => ({ name: d.name, stepIndex: Math.floor(d.stepPos), color: d.color })),
+    ].sort((a, b) => b.stepIndex - a.stepIndex);
+
+    const ROW_H   = 20;
+    const PANEL_W = 110;
+    const PANEL_H = allPlayers.length * ROW_H + 28;
+    const PX      = W - PANEL_W - 8;
+    const PY      = 50;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(PX - 6, PY - 6, PANEL_W + 12, PANEL_H);
+
+    ctx.font         = 'bold 11px monospace';
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle    = 'rgba(255,255,255,0.38)';
+    ctx.fillText('순위', PX, PY);
+
+    for (let i = 0; i < allPlayers.length; i++) {
+      const p   = allPlayers[i];
+      const ry  = PY + 18 + i * ROW_H;
+      const hm  = (p.stepIndex / CFG.STEPS_PER_M).toFixed(1);
+      ctx.font      = i === 0 ? 'bold 11px monospace' : '11px monospace';
+      ctx.fillStyle = p.color;
+      ctx.fillText(`${i + 1}. ${p.name}`, PX, ry);
+      ctx.fillStyle = 'rgba(255,255,255,0.42)';
+      ctx.fillText(`${hm}m`, PX + 66, ry);
+    }
+  }
+
+  // 테스트 모드 표시 (화면 상단 중앙 아래)
+  if (state.admin.testMode) {
+    ctx.font         = 'bold 12px monospace';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle    = 'rgba(255, 215, 0, 0.7)';
+    ctx.fillText('TEST MODE', W / 2, 38);
+  }
+
   // ── 저주 사후 효과 (mirror 해제 후 그려 반전 영향 없음) ───────────
 
   // 암흑의 저주: CURSE_DARK_PERIOD ms 어둡고 CURSE_LIGHT_PERIOD ms 밝음을 반복
@@ -1242,6 +1398,13 @@ function loop() {
     state.fireworks = state.fireworks.filter(p => now - p.spawnedAt < p.lifetime * 1000);
   }
 
+  // 더미 플레이어 이동 업데이트
+  for (const d of state.dummyPlayers) {
+    const dt = (now - d.lastUpdateAt) / 1000;
+    d.stepPos      = Math.min(d.stepPos + d.stepsPerSec * dt, state.steps.length - 1);
+    d.lastUpdateAt = now;
+  }
+
   // ── 저주 상태 머신 ──────────────────────────────
   // 확인 창 타이머 갱신 및 자동 취소
   if (state.curse.confirmActive) {
@@ -1278,17 +1441,17 @@ function loop() {
     player.elevating = null;
   }
 
-  // 퀴즈 타이머: normal 상태이고 각종 오버레이·이동 중이 아닐 때만 발동
-  if (!state.quiz.active && !state.friendFollow.active &&
+  // 퀴즈 타이머: normal 상태이고 각종 오버레이·이동·테스트 모드가 아닐 때만 발동
+  if (!state.quiz.active && !state.friendFollow.active && !state.admin.testMode &&
       state.quiz.questions.length > 0 && state.quiz.freezeUntil === 0 &&
       state.quiz.nextAt > 0 && player.phase === 'normal' &&
       !player.elevating && now >= state.quiz.nextAt) {
     startQuiz();
   }
 
-  // 채찍 게이지: normal 상태이고 각종 오버레이·이동 중이 아닐 때만 누적
+  // 채찍 게이지: normal 상태이고 각종 오버레이·이동·테스트 모드가 아닐 때만 누적
   if (player.phase === 'normal' && !player.elevating && !state.friendFollow.active &&
-      !state.quiz.active && state.quiz.freezeUntil === 0) {
+      !state.quiz.active && state.quiz.freezeUntil === 0 && !state.admin.testMode) {
     // 최초 초기화 (게임 시작 또는 재시작 직후)
     if (player.whipTickAt === 0) player.whipTickAt = now + getWhipInterval();
 
@@ -1699,3 +1862,17 @@ document.getElementById('friendFollowInput').addEventListener('keydown', (e) => 
 
 document.getElementById('curseConfirmYes').addEventListener('click', commitCurse);
 document.getElementById('curseConfirmNo').addEventListener('click', cancelCurse);
+
+// =============================================
+// 관리자 패널 초기화 및 토글
+// =============================================
+{
+  const toggle = document.getElementById('adminToggle');
+  const panel  = document.getElementById('adminPanel');
+  toggle.addEventListener('click', () => panel.classList.toggle('hidden'));
+  // F2 키로도 토글 가능
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'F2') { e.preventDefault(); panel.classList.toggle('hidden'); }
+  });
+  initAdminItemSelect();
+}

@@ -276,6 +276,109 @@ html, body {
 #debugPanel button:last-child { margin-bottom: 0; }
 
 /* =============================================
+   관리자 패널
+   ============================================= */
+#adminToggle {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  z-index: 200;
+  background: rgba(255, 215, 0, 0.18);
+  color: rgba(255, 215, 0, 0.85);
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: bold;
+  cursor: pointer;
+  letter-spacing: 1px;
+  user-select: none;
+}
+#adminToggle:hover { background: rgba(255, 215, 0, 0.32); }
+
+#adminPanel {
+  position: fixed;
+  bottom: 44px;
+  left: 12px;
+  z-index: 200;
+  background: rgba(10, 10, 22, 0.95);
+  border: 1px solid rgba(255, 215, 0, 0.28);
+  border-radius: 10px;
+  padding: 12px 14px;
+  min-width: 200px;
+  font-family: monospace;
+}
+
+.adminTitle {
+  font-size: 11px;
+  color: rgba(255, 215, 0, 0.7);
+  margin-bottom: 10px;
+  letter-spacing: 0.5px;
+  font-weight: bold;
+}
+
+.adminGroup {
+  margin-bottom: 10px;
+}
+.adminGroup:last-child { margin-bottom: 0; }
+
+.adminLabel {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.38);
+  margin-bottom: 5px;
+  letter-spacing: 0.3px;
+}
+
+.adminCheckLabel {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.adminCheckLabel input[type="checkbox"] { accent-color: #ffd700; }
+
+#adminPanel button {
+  padding: 4px 9px;
+  margin-top: 4px;
+  margin-right: 4px;
+  background: rgba(255, 215, 0, 0.10);
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  border-radius: 5px;
+  color: rgba(255, 215, 0, 0.8);
+  font-size: 11px;
+  font-family: monospace;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+#adminPanel button:hover { background: rgba(255, 215, 0, 0.22); }
+
+#adminPanel input[type="number"],
+#adminPanel select {
+  width: 100%;
+  padding: 4px 8px;
+  margin-bottom: 2px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255, 215, 0, 0.18);
+  border-radius: 5px;
+  color: rgba(255,255,255,0.85);
+  font-size: 12px;
+  font-family: monospace;
+  outline: none;
+}
+#adminPanel input[type="number"]:focus,
+#adminPanel select:focus { border-color: rgba(255,215,0,0.5); }
+#adminPanel select option { background: #0e0e22; }
+
+#adminDummyStatus {
+  color: rgba(255,215,0,0.65);
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+/* =============================================
    저주 확인 오버레이
    ============================================= */
 #curseConfirmOverlay {
