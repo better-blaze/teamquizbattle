@@ -1,6 +1,27 @@
 'use strict';
 
 // =============================================
+// Firebase 초기화 (6단계 멀티플레이)
+// =============================================
+const FB_CONFIG = {
+  apiKey           : 'AIzaSyD6VKKUh_evt0kveIaCNIxRRTtIUDoWL48',
+  authDomain       : 'quiz-battle-royale-5f7a2.firebaseapp.com',
+  databaseURL      : 'https://quiz-battle-royale-5f7a2-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId        : 'quiz-battle-royale-5f7a2',
+  storageBucket    : 'quiz-battle-royale-5f7a2.firebasestorage.app',
+  messagingSenderId: '692757063593',
+  appId            : '1:692757063593:web:02253e7c4b417db98a06b8',
+};
+let db = null;
+try {
+  firebase.initializeApp(FB_CONFIG);
+  db = firebase.database();
+  console.log('[Firebase] 연결 성공');
+} catch (e) {
+  console.warn('[Firebase] 초기화 실패 — 오프라인 모드 전용:', e.message);
+}
+
+// =============================================
 // 설정값
 // =============================================
 const CFG = {
@@ -229,22 +250,73 @@ function teleportToHeight(heightM) {
   console.log(`[친구따라강남] ${heightM}m 지정 → 계단 ${destIdx}번 (${(destIdx / CFG.STEPS_PER_M).toFixed(1)}m)`);
 }
 
-// 친구따라강남 오버레이 표시 / 숨김
-// 6단계에서 showFriendFollowOverlay는 대상 플레이어 이름을 받아 표시하도록 수정 예정
+// 친구따라강남 오버레이 표시 — 온라인이면 위에 있는 플레이어 목록, 오프라인이면 높이 입력
 function showFriendFollowOverlay() {
   if (state.player.phase !== 'normal') return;
   state.friendFollow.active = true;
-  const currentH = (state.player.stepIndex / CFG.STEPS_PER_M).toFixed(1);
-  const input = document.getElementById('friendFollowInput');
-  input.value       = '';
-  input.placeholder = `현재 ${currentH}m 이상 입력`;
+
+  const inputEl   = document.getElementById('friendFollowInput');
+  const confirmEl = document.getElementById('friendFollowConfirm');
+  const subEl     = document.getElementById('friendFollowSub');
+
+  if (state.online.enabled) {
+    // 온라인: 위에 있는 플레이어를 버튼 목록으로 표시
+    inputEl.style.display   = 'none';
+    confirmEl.style.display = 'none';
+
+    // 기존 동적 버튼 목록 제거/재생성
+    let listEl = document.getElementById('friendFollowList');
+    if (!listEl) {
+      listEl = document.createElement('div');
+      listEl.id = 'friendFollowList';
+      document.getElementById('friendFollowBtns').insertAdjacentElement('beforebegin', listEl);
+    }
+    listEl.innerHTML = '';
+
+    const above = Object.values(state.online.otherPlayers)
+      .filter(op => op.step > state.player.stepIndex)
+      .sort((a, b) => b.step - a.step);
+
+    if (above.length === 0) {
+      subEl.textContent = '위에 있는 친구가 없습니다';
+    } else {
+      subEl.textContent = '따라갈 친구를 선택하세요';
+      above.forEach(op => {
+        const btn = document.createElement('button');
+        const h   = (op.step / CFG.STEPS_PER_M).toFixed(1);
+        btn.className   = 'friendFollowPlayerBtn';
+        btn.textContent = `${op.name}  (${h}m)  →`;
+        btn.onclick = () => {
+          hideFriendFollowOverlay();
+          teleportToHeight(op.step / CFG.STEPS_PER_M);
+        };
+        listEl.appendChild(btn);
+      });
+    }
+  } else {
+    // 오프라인: 기존 높이 입력 UI
+    inputEl.style.display   = '';
+    confirmEl.style.display = '';
+    const currentH = (state.player.stepIndex / CFG.STEPS_PER_M).toFixed(1);
+    inputEl.value       = '';
+    inputEl.placeholder = `현재 ${currentH}m 이상 입력`;
+    subEl.textContent   = '목표 높이(m)를 입력하세요';
+    const listEl = document.getElementById('friendFollowList');
+    if (listEl) listEl.innerHTML = '';
+    setTimeout(() => inputEl.focus(), 50);
+  }
+
   document.getElementById('friendFollowOverlay').classList.remove('hidden');
-  setTimeout(() => input.focus(), 50);
 }
 
 function hideFriendFollowOverlay() {
   state.friendFollow.active = false;
   document.getElementById('friendFollowOverlay').classList.add('hidden');
+  // 온라인 모드에서 변경한 UI 원복 (다음 사용을 위해)
+  document.getElementById('friendFollowInput').style.display   = '';
+  document.getElementById('friendFollowConfirm').style.display = '';
+  const listEl = document.getElementById('friendFollowList');
+  if (listEl) listEl.innerHTML = '';
 }
 
 // =============================================
@@ -327,6 +399,295 @@ function initAdminItemSelect() {
 }
 
 // =============================================
+// 6단계 — 멀티플레이 (Firebase)
+// =============================================
+
+// 이 기기 고유 UID — localStorage에 저장해 재접속 시 재사용
+function getPlayerUID() {
+  let uid = localStorage.getItem('stairway_uid');
+  if (!uid) {
+    uid = 'u' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+    localStorage.setItem('stairway_uid', uid);
+  }
+  return uid;
+}
+
+// UID → 색상 (같은 UID면 항상 같은 색)
+function assignPlayerColor(uid) {
+  const COLORS = ['#4a9eff', '#4ae0a0', '#ff9f43', '#b06eff', '#26de81',
+                  '#fd9644', '#ff6b81', '#a29bfe', '#ff6348', '#2ed573'];
+  const hash = uid.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  return COLORS[hash % COLORS.length];
+}
+
+// 로그인 오버레이 표시 / 숨김
+function showLoginOverlay() {
+  document.getElementById('loginOverlay')?.classList.remove('hidden');
+}
+function hideLoginOverlay() {
+  document.getElementById('loginOverlay')?.classList.add('hidden');
+}
+
+// 로그인 오버레이 메시지 표시
+function showLoginMsg(msg) {
+  const el = document.getElementById('loginMsg');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle('hidden', !msg);
+}
+
+// 이름·PIN 입력값 유효성 검사
+function validateLoginInputs(name, pin) {
+  if (!name || name.length < 1 || name.length > 8 || name.includes(' ')) {
+    showLoginMsg('이름은 1~8자, 공백 없이 입력하세요.');
+    return false;
+  }
+  if (!/^\d{4}$/.test(pin)) {
+    showLoginMsg('PIN은 숫자 4자리로 입력하세요.');
+    return false;
+  }
+  return true;
+}
+
+// 선생님: 방 만들기 (Firebase 세션 생성 후 입장)
+async function createSession(name, pin) {
+  if (!db) { showLoginMsg('Firebase 연결 실패 — 오프라인으로 플레이하세요.'); return; }
+  if (!validateLoginInputs(name, pin)) return;
+  showLoginMsg('방 만드는 중...');
+  try {
+    await db.ref(`stairway/sessions/${pin}`).set({
+      createdAt : Date.now(),
+      gameActive: true,
+      hostName  : name,
+    });
+    await doJoin(name, pin, true);
+  } catch (e) {
+    showLoginMsg('방 만들기 실패: ' + e.message);
+    console.error('[온라인] createSession 오류:', e);
+  }
+}
+
+// 학생: 방 입장 (기존 세션 PIN으로 참가)
+async function joinOnline(name, pin) {
+  if (!db) { showLoginMsg('Firebase 연결 실패 — 오프라인으로 플레이하세요.'); return; }
+  if (!validateLoginInputs(name, pin)) return;
+  showLoginMsg('입장 중...');
+  try {
+    const snap = await db.ref(`stairway/sessions/${pin}`).get();
+    if (!snap.exists()) { showLoginMsg('존재하지 않는 PIN입니다.'); return; }
+    if (snap.val().gameActive === false) { showLoginMsg('이미 종료된 방입니다.'); return; }
+    await doJoin(name, pin, false);
+  } catch (e) {
+    showLoginMsg('입장 실패: ' + e.message);
+    console.error('[온라인] joinOnline 오류:', e);
+  }
+}
+
+// 오프라인 모드로 시작
+function startOffline() {
+  state.online.enabled    = false;
+  state.online.playerName = '나';
+  state.gamePhase         = 'playing';
+  hideLoginOverlay();
+  console.log('[게임] 오프라인 모드 시작');
+}
+
+// 공통 입장 처리 — 재접속 시 step 복구
+async function doJoin(name, pin, isHost) {
+  const uid = getPlayerUID();
+
+  // 재접속 체크: 이미 같은 UID의 데이터가 Firebase에 있으면 step 복구
+  const existSnap = await db.ref(`stairway/sessions/${pin}/players/${uid}`).get();
+  if (existSnap.exists() && existSnap.val().step != null) {
+    const prev = existSnap.val();
+    state.player.stepIndex  = prev.step || 0;
+    state.player.whipGauge  = 0;
+    state.player.activeItem = null;
+    state.quiz.questions    = [];
+    state.quiz.queue        = [];
+    state.quiz.nextAt       = 0;
+    console.log(`[재접속] ${name} — step ${prev.step}에서 재개`);
+  } else {
+    // 새 입장: 관리자 설정 시작 높이 적용
+    const startStep = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
+    state.player.stepIndex = startStep;
+  }
+
+  // 카메라 즉시 해당 계단으로 이동
+  const si = state.player.stepIndex;
+  state.camera.x = state.steps[si].x;
+  state.camera.y = state.steps[si].y - CFG.STEP_TOP;
+
+  // online 상태 초기화
+  state.online.enabled      = true;
+  state.online.pin          = pin;
+  state.online.playerId     = uid;
+  state.online.playerName   = name;
+  state.online.isHost       = isHost;
+  state.online.joinedAt     = Date.now();
+  state.online.otherPlayers = {};
+  state.online.lastWriteAt  = 0;
+
+  // 초기 위치 Firebase에 즉시 쓰기
+  await db.ref(`stairway/sessions/${pin}/players/${uid}`).set({
+    name     : name,
+    step     : state.player.stepIndex,
+    x        : state.steps[state.player.stepIndex].x,
+    isFalling: false,
+    t        : Date.now(),
+  });
+
+  // 연결 끊기면 Firebase에서 자동 제거
+  db.ref(`stairway/sessions/${pin}/players/${uid}`).onDisconnect().remove();
+
+  // 실시간 리스너 시작
+  listenPlayers(pin);
+  listenGameState(pin);
+  listenCurses(pin);
+  listenMercy(pin);
+
+  // 호스트(선생님)만 관리자 랭킹 패널 표시
+  if (isHost) {
+    document.getElementById('adminRankingGroup')?.classList.remove('hidden');
+  }
+
+  state.gamePhase = 'playing';
+  hideLoginOverlay();
+  console.log(`[온라인] ${name} 입장 — PIN:${pin} (${isHost ? '호스트' : '학생'})`);
+}
+
+// 다른 플레이어 위치 실시간 감지
+function listenPlayers(pin) {
+  db.ref(`stairway/sessions/${pin}/players`).on('value', snap => {
+    const data = snap.val() || {};
+    delete data[state.online.playerId]; // 내 데이터 제외
+
+    // 새 플레이어 추가 / 기존 업데이트
+    for (const [uid, pd] of Object.entries(data)) {
+      if (!state.online.otherPlayers[uid]) {
+        state.online.otherPlayers[uid] = {
+          name       : pd.name,
+          step       : pd.step || 0,
+          x          : pd.x   || 0,
+          isFalling  : pd.isFalling || false,
+          displayStep: pd.step || 0,  // 보간용 — 목표값으로 즉시 초기화
+          displayX   : pd.x   || 0,
+          color      : assignPlayerColor(uid),
+        };
+      } else {
+        const op = state.online.otherPlayers[uid];
+        op.name      = pd.name;
+        op.step      = pd.step || 0;
+        op.x         = pd.x   || 0;
+        op.isFalling = pd.isFalling || false;
+        // displayStep/displayX는 loop에서 보간
+      }
+    }
+
+    // 퇴장 플레이어 제거
+    for (const uid of Object.keys(state.online.otherPlayers)) {
+      if (!data[uid]) delete state.online.otherPlayers[uid];
+    }
+
+    // 호스트: 관리자 랭킹 갱신
+    if (state.online.isHost) updateAdminRanking();
+  });
+}
+
+// gameActive 감시 — false가 되면 게임 종료 화면으로 전환
+function listenGameState(pin) {
+  db.ref(`stairway/sessions/${pin}/gameActive`).on('value', snap => {
+    if (snap.val() === false && state.gamePhase === 'playing') {
+      state.gamePhase = 'ended';
+      showFinalRanking();
+    }
+  });
+}
+
+// 저주 이벤트 감시 — 다른 플레이어가 쓴 저주를 내 화면에 적용
+function listenCurses(pin) {
+  const joinedAt = state.online.joinedAt;
+  db.ref(`stairway/sessions/${pin}/curses`).on('child_added', snap => {
+    const curse = snap.val();
+    if (!curse || curse.t < joinedAt) return;               // 접속 전 저주 무시
+    if (curse.caster === state.online.playerName) return;   // 내가 건 저주는 무시
+
+    if (isCurseInProgress()) {
+      state.curse.queue.push(curse.type);
+    } else {
+      activateCurseEffect(curse.type);
+    }
+  });
+}
+
+// "자비를 베푸셨습니다" 이벤트 감시
+function listenMercy(pin) {
+  const joinedAt = state.online.joinedAt;
+  db.ref(`stairway/sessions/${pin}/mercy`).on('child_added', snap => {
+    const mercy = snap.val();
+    if (!mercy || mercy.t < joinedAt) return;
+    if (mercy.name === state.online.playerName) return; // 내 자비는 이미 로컬에서 표시
+    state.curse.mercyAt   = Date.now();
+    state.curse.mercyName = mercy.name;
+  });
+}
+
+// 내 위치 Firebase에 쓰기 (400ms throttle)
+function writePlayerData() {
+  const { player, steps, online } = state;
+  if (!db || !online.enabled) return;
+  db.ref(`stairway/sessions/${online.pin}/players/${online.playerId}`).update({
+    name     : online.playerName,
+    step     : player.stepIndex,
+    x        : steps[player.stepIndex]?.x ?? 0,
+    isFalling: player.phase !== 'normal',
+    t        : Date.now(),
+  });
+}
+
+// 호스트: 게임 종료 (모든 플레이어에게 최종 순위 표시)
+function adminEndGame() {
+  if (!state.online.isHost || !db) return;
+  if (!confirm('게임을 종료하시겠습니까? 모든 플레이어에게 최종 순위가 표시됩니다.')) return;
+  db.ref(`stairway/sessions/${state.online.pin}/gameActive`).set(false);
+}
+
+// 최종 순위 오버레이 표시
+function showFinalRanking() {
+  const onlinePlayers = Object.values(state.online.otherPlayers);
+  const myName = state.online.enabled ? state.online.playerName : '나';
+  const all = [
+    { name: myName, step: state.player.stepIndex },
+    ...onlinePlayers.map(op => ({ name: op.name, step: op.step })),
+  ].sort((a, b) => b.step - a.step);
+
+  const list = document.getElementById('finalRankingList');
+  if (list) {
+    list.innerHTML = all.map((p, i) => {
+      const h = (p.step / CFG.STEPS_PER_M).toFixed(1);
+      return `<li><span class="rankPos">${i + 1}위</span><strong>${p.name}</strong><span class="rankH">${h}m</span></li>`;
+    }).join('');
+  }
+  document.getElementById('finalRankingOverlay')?.classList.remove('hidden');
+}
+
+// 호스트 전용: 관리자 패널 실시간 랭킹 업데이트
+function updateAdminRanking() {
+  const list = document.getElementById('adminRankingList');
+  if (!list) return;
+  const onlinePlayers = Object.values(state.online.otherPlayers);
+  const myName = state.online.playerName || '나';
+  const all = [
+    { name: myName, step: state.player.stepIndex },
+    ...onlinePlayers.map(op => ({ name: op.name, step: op.step })),
+  ].sort((a, b) => b.step - a.step);
+  list.innerHTML = all.map((p, i) => {
+    const h = (p.step / CFG.STEPS_PER_M).toFixed(1);
+    return `<div style="margin-bottom:2px">${i + 1}. <b>${p.name}</b> ${h}m</div>`;
+  }).join('');
+}
+
+// =============================================
 // 폭죽 파티클
 // =============================================
 
@@ -388,16 +749,25 @@ function commitCurse() {
   console.log(`[저주] ${itemId} 카운트다운 시작`);
 }
 
-// "아니요" 선택 또는 시간 초과 — 자비 메시지 표시
+// "아니요" 선택 또는 시간 초과 — 자비 메시지 표시 (온라인이면 다른 플레이어에게도 전파)
 function cancelCurse() {
   state.curse.confirmActive = false;
   document.getElementById('curseConfirmOverlay').classList.add('hidden');
 
+  // 자비 메시지 로컬에 즉시 표시
   state.curse.mercyAt   = Date.now();
-  // 6단계에서 state.curse.mercyName에 실제 플레이어 이름을 설정
+  state.curse.mercyName = state.online.enabled ? state.online.playerName : '나';
+
+  // 온라인: 다른 플레이어에게 "자비" 이벤트 전파
+  if (state.online.enabled && db) {
+    db.ref(`stairway/sessions/${state.online.pin}/mercy`).push({
+      name: state.online.playerName,
+      t   : Date.now(),
+    });
+  }
+
   console.log(`[저주] 취소 → ${state.curse.mercyName}님이 자비를 베푸셨습니다.`);
 
-  // 큐에 다음 저주가 있으면 자비 메시지 후 처리
   if (state.curse.queue.length > 0) {
     setTimeout(processNextCurse, CFG.CURSE_MERCY_MS + 300);
   }
@@ -602,6 +972,17 @@ const state = {
     testMode   : false, // 테스트 모드: 채찍·퀴즈 비활성화
     startHeight: 0,     // 다음 게임 시작 높이 (m) — 0이면 0번 계단에서 시작
   },
+  gamePhase: 'login',  // 'login' | 'playing' | 'ended' — 로그인 전 게임 로직 차단
+  online: {
+    enabled     : false,     // Firebase 연결 여부 (false = 오프라인)
+    pin         : '',        // 방 PIN (4자리 숫자)
+    playerId    : '',        // 내 Firebase UID
+    playerName  : '나',     // 내 이름
+    isHost      : false,     // 방장(선생님) 여부
+    joinedAt    : 0,         // 입장 시각 — 이 이전 Firebase 이벤트는 무시
+    otherPlayers: {},        // { uid: { name, step, x, isFalling, displayStep, displayX, color } }
+    lastWriteAt : 0,         // 마지막 Firebase write 시각
+  },
   friendFollow: { active: false }, // 친구따라강남 오버레이 활성 여부
   curse: {
     confirmActive  : false,  // "저주를 거시겠습니까?" 확인 창 활성
@@ -783,6 +1164,7 @@ const KEY_MAP = {
 };
 
 window.addEventListener('keydown', (e) => {
+  if (state.gamePhase !== 'playing') return; // 로그인/종료 화면에서는 게임 입력 무시
   if (state.player.phase === 'gameover') { handleInput(-1); return; }
   if (e.key in KEY_MAP) { e.preventDefault(); handleInput(KEY_MAP[e.key]); }
 });
@@ -808,6 +1190,22 @@ const DIR_LABELS = ['←', '→', '←←', '→→'];
 function render() {
   const W = canvas.width;
   const H = canvas.height;
+
+  // 로그인 / 게임 종료 화면: 배경 + 별만 그림 (HTML 오버레이가 위에 표시됨)
+  if (state.gamePhase !== 'playing') {
+    const bgL = ctx.createLinearGradient(0, 0, 0, H);
+    bgL.addColorStop(0, '#07071a');
+    bgL.addColorStop(1, '#12123a');
+    ctx.fillStyle = bgL;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    for (let i = 0; i < 80; i++) {
+      const sz = (i % 5 === 0) ? 2 : 1;
+      ctx.fillRect((i * 173 + 61) % W, (i * 293 + 37) % H, sz, sz);
+    }
+    return;
+  }
+
   const { steps, player, camera, map } = state;
 
   // 거울의 저주: 캔버스 전체를 좌우반전 (게임 콘텐츠 + HUD 포함)
@@ -948,6 +1346,28 @@ function render() {
     ctx.textBaseline = 'bottom';
     ctx.fillStyle    = d.color;
     ctx.fillText(d.name, dsx, dsy - 2);
+  }
+
+  // --- 온라인 다른 플레이어 렌더 (6단계) ---
+  for (const op of Object.values(state.online.otherPlayers)) {
+    const dIdx = Math.round(op.displayStep);
+    if (dIdx < 0 || dIdx >= steps.length) continue;
+    const step = steps[dIdx];
+    const dsx  = toSx(op.displayX ?? step.x);
+    const dsy  = toSy(step.y - CFG.STEP_TOP) - CFG.PLAYER_H;
+    if (dsy < -60 || dsy > H + 60) continue;
+    ctx.fillStyle = op.color;
+    ctx.fillRect(dsx - CFG.PLAYER_W / 2, dsy, CFG.PLAYER_W, CFG.PLAYER_H);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillRect(dsx - CFG.PLAYER_W / 2, dsy, CFG.PLAYER_W, 4);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(dsx - 10, dsy + 8, 6, 6);
+    ctx.fillRect(dsx + 4,  dsy + 8, 6, 6);
+    ctx.font         = 'bold 10px sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle    = op.color;
+    ctx.fillText(op.name, dsx, dsy - 2);
   }
 
   // --- 폭죽 파티클 ---
@@ -1241,11 +1661,14 @@ function render() {
   // 거울의 저주 transform 해제 (이후 효과는 뒤집히지 않음)
   if (isMirror) ctx.restore();
 
-  // --- 랭킹 패널 (더미 플레이어 있을 때 우측 상단) ---
-  if (state.dummyPlayers.length > 0) {
+  // --- 랭킹 패널 (더미 또는 온라인 플레이어가 있을 때 우측 상단) ---
+  const onlineOthers = Object.values(state.online.otherPlayers);
+  if (state.dummyPlayers.length > 0 || onlineOthers.length > 0) {
+    const myName = state.online.enabled ? state.online.playerName : '나';
     const allPlayers = [
-      { name: '나', stepIndex: player.stepIndex, color: '#ff4757' },
+      { name: myName, stepIndex: player.stepIndex, color: '#ff4757' },
       ...state.dummyPlayers.map(d => ({ name: d.name, stepIndex: Math.floor(d.stepPos), color: d.color })),
+      ...onlineOthers.map(op => ({ name: op.name, stepIndex: Math.round(op.displayStep), color: op.color })),
     ].sort((a, b) => b.stepIndex - a.stepIndex);
 
     const ROW_H   = 20;
@@ -1334,8 +1757,16 @@ function render() {
 // 게임 루프 — requestAnimationFrame 하나만
 // =============================================
 function loop() {
-  const { player, steps } = state;
   const now = Date.now();
+
+  // 로그인 / 게임 종료 화면: 게임 로직 건너뜀 (배경 렌더만)
+  if (state.gamePhase !== 'playing') {
+    render();
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  const { player, steps } = state;
 
   // falling_locked → drifting 전환
   if (player.phase === 'falling_locked' && now >= player.fallLockEndsAt) {
@@ -1414,9 +1845,20 @@ function loop() {
     if (now >= state.curse.confirmEndsAt) cancelCurse(); // 시간 초과 → 자비
   }
 
-  // 카운트다운 종료 → 효과 발동
+  // 카운트다운 종료 → 효과 발동 (온라인이면 Firebase 전파, 오프라인이면 자기 화면에 직접 적용)
   if (state.curse.countdownActive && now >= state.curse.countdownUntil) {
-    activateCurseEffect(state.curse.countdownItem);
+    if (state.online.enabled && db) {
+      // 온라인: Firebase에 저주 이벤트 기록 → 다른 플레이어 클라이언트에서 수신·적용
+      state.curse.countdownActive = false;
+      db.ref(`stairway/sessions/${state.online.pin}/curses`).push({
+        caster: state.online.playerName,
+        type  : state.curse.countdownItem,
+        t     : now,
+      });
+      console.log(`[저주] ${state.curse.countdownItem} — Firebase 전파 완료`);
+    } else {
+      activateCurseEffect(state.curse.countdownItem);
+    }
   }
 
   // 효과 종료 → 대기열 처리
@@ -1479,6 +1921,18 @@ function loop() {
     }
   } else {
     player.autoInputAt = 0; // 자율주행 비활성/만료 시 타이머 초기화
+  }
+
+  // 온라인: 다른 플레이어 위치 보간 — 수신된 step/x 목표값으로 스르륵 이동
+  for (const op of Object.values(state.online.otherPlayers)) {
+    op.displayStep += (op.step - op.displayStep) * 0.12;
+    op.displayX    += (op.x   - op.displayX)    * 0.12;
+  }
+
+  // 온라인: 내 위치 Firebase에 throttle 쓰기 (400ms마다)
+  if (state.online.enabled && now - state.online.lastWriteAt >= 400) {
+    state.online.lastWriteAt = now;
+    writePlayerData();
   }
 
   // 카메라를 플레이어 위치로 부드럽게 추적 (엘리베이터 상승 중엔 빠르게 따라감)
@@ -1875,4 +2329,34 @@ document.getElementById('curseConfirmNo').addEventListener('click', cancelCurse)
     if (e.key === 'F2') { e.preventDefault(); panel.classList.toggle('hidden'); }
   });
   initAdminItemSelect();
+}
+
+// =============================================
+// 6단계 — 로그인 오버레이 이벤트
+// =============================================
+{
+  // 학생 입장
+  document.getElementById('btnJoin')?.addEventListener('click', () => {
+    const name = document.getElementById('loginName')?.value.trim() || '';
+    const pin  = document.getElementById('loginPin')?.value.trim() || '';
+    joinOnline(name, pin);
+  });
+
+  // 선생님 방 만들기
+  document.getElementById('btnCreate')?.addEventListener('click', () => {
+    const name = document.getElementById('hostName')?.value.trim() || '';
+    const pin  = document.getElementById('hostPin')?.value.trim() || '';
+    createSession(name, pin);
+  });
+
+  // 오프라인 플레이
+  document.getElementById('btnOffline')?.addEventListener('click', startOffline);
+
+  // Enter 키 지원
+  document.getElementById('loginPin')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btnJoin')?.click();
+  });
+  document.getElementById('hostPin')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btnCreate')?.click();
+  });
 }

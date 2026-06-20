@@ -7,9 +7,49 @@
   <link rel="stylesheet" href="style.css">
   <!-- SheetJS: 엑셀(.xlsx) 파싱 -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Firebase (compat SDK — 전역 firebase 객체 사용) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
 <body>
   <canvas id="gameCanvas"></canvas>
+
+  <!-- 로그인 오버레이 (게임 시작 전 표시) -->
+  <div id="loginOverlay">
+    <div id="loginPanel">
+      <div id="loginTitle">천국의 계단</div>
+      <div id="loginSubtitle">Stairway to Heaven</div>
+
+      <div class="loginSection">
+        <div class="loginSectionTitle">학생 — 입장하기</div>
+        <input id="loginName" type="text" placeholder="이름 (1~8자)" maxlength="8" autocomplete="off" />
+        <input id="loginPin" type="text" placeholder="PIN (숫자 4자리)" maxlength="4" inputmode="numeric" pattern="[0-9]*" autocomplete="off" />
+        <button id="btnJoin">입장하기 →</button>
+      </div>
+
+      <div class="loginDivider">— 또는 —</div>
+
+      <div class="loginSection">
+        <div class="loginSectionTitle">선생님 — 방 만들기</div>
+        <input id="hostName" type="text" placeholder="이름" maxlength="8" value="선생님" autocomplete="off" />
+        <input id="hostPin" type="text" placeholder="PIN 설정 (숫자 4자리)" maxlength="4" inputmode="numeric" pattern="[0-9]*" autocomplete="off" />
+        <button id="btnCreate">방 만들기</button>
+      </div>
+
+      <div id="loginMsg" class="hidden"></div>
+      <button id="btnOffline">오프라인으로 플레이</button>
+    </div>
+  </div>
+
+  <!-- 최종 순위 오버레이 (게임 종료 시 표시) -->
+  <div id="finalRankingOverlay" class="hidden">
+    <div id="finalRankingPanel">
+      <div id="finalRankingTitle">🏁 게임 종료!</div>
+      <div id="finalRankingSubtitle">최종 순위</div>
+      <ol id="finalRankingList"></ol>
+      <button onclick="document.getElementById('finalRankingOverlay').classList.add('hidden')">닫기</button>
+    </div>
+  </div>
 
   <!-- 개발용 디버그 패널 -->
   <button id="debugToggle" title="디버그 패널 토글 (` 키)">DEV</button>
@@ -79,6 +119,13 @@
       <input type="number" id="adminDummyCount" min="1" max="30" value="5" />
       <button onclick="adminAddDummies()">추가</button>
       <button onclick="adminClearDummies()">전체 삭제</button>
+    </div>
+
+    <!-- 6단계: 온라인 랭킹 + 게임 종료 (호스트만 표시) -->
+    <div class="adminGroup hidden" id="adminRankingGroup">
+      <div class="adminLabel">실시간 랭킹</div>
+      <div id="adminRankingList"></div>
+      <button onclick="adminEndGame()" style="margin-top:6px;background:rgba(255,71,87,0.18);border-color:rgba(255,71,87,0.4);color:#ff4757;">게임 종료</button>
     </div>
   </div>
 

@@ -554,6 +554,240 @@ html, body {
 }
 #debugPanel input[type="number"]:focus { border-color: rgba(255,255,255,0.4); }
 
+/* =============================================
+   6단계 — 로그인 오버레이
+   ============================================= */
+#loginOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+
+#loginPanel {
+  background: #10103a;
+  border: 2px solid rgba(74,158,255,0.30);
+  border-radius: 20px;
+  padding: 36px 38px;
+  width: min(420px, 94vw);
+  color: #fff;
+  font-family: sans-serif;
+  text-align: center;
+}
+
+#loginTitle {
+  font-size: 30px;
+  font-weight: bold;
+  color: #4a9eff;
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+
+#loginSubtitle {
+  font-size: 13px;
+  color: rgba(255,255,255,0.35);
+  margin-bottom: 24px;
+  letter-spacing: 3px;
+}
+
+.loginSection {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.loginSectionTitle {
+  font-size: 12px;
+  color: rgba(255,255,255,0.45);
+  margin-bottom: 10px;
+  letter-spacing: 0.5px;
+}
+
+.loginSection input[type="text"] {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 15px;
+  outline: none;
+  box-sizing: border-box;
+  text-align: center;
+}
+.loginSection input[type="text"]:focus { border-color: #4a9eff; }
+
+.loginSection button {
+  width: 100%;
+  padding: 11px;
+  background: #4a9eff;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.loginSection button:hover { background: #2a7ee0; }
+
+/* 선생님 방 만들기 버튼 — 골드 계열 */
+#btnCreate {
+  background: rgba(255,215,0,0.85);
+  color: #1a1a00;
+}
+#btnCreate:hover { background: #ffd700; }
+
+.loginDivider {
+  font-size: 12px;
+  color: rgba(255,255,255,0.25);
+  margin: 4px 0 12px;
+  letter-spacing: 2px;
+}
+
+#loginMsg {
+  margin: 8px 0;
+  font-size: 13px;
+  color: #ff4757;
+  min-height: 18px;
+}
+
+#btnOffline {
+  margin-top: 12px;
+  padding: 8px 20px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.45);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+#btnOffline:hover { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); }
+
+/* =============================================
+   6단계 — 최종 순위 오버레이
+   ============================================= */
+#finalRankingOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 250;
+}
+
+#finalRankingPanel {
+  background: #0e0e2e;
+  border: 2px solid rgba(74,158,255,0.35);
+  border-radius: 18px;
+  padding: 32px 40px;
+  width: min(400px, 92vw);
+  color: #fff;
+  font-family: sans-serif;
+  text-align: center;
+}
+
+#finalRankingTitle {
+  font-size: 26px;
+  font-weight: bold;
+  color: #ffd700;
+  margin-bottom: 4px;
+}
+
+#finalRankingSubtitle {
+  font-size: 13px;
+  color: rgba(255,255,255,0.42);
+  margin-bottom: 20px;
+}
+
+#finalRankingList {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+#finalRankingList li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  margin-bottom: 6px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+#finalRankingList li:first-child { background: rgba(255,215,0,0.12); border: 1px solid rgba(255,215,0,0.25); }
+#finalRankingList li:nth-child(2) { background: rgba(192,192,192,0.10); }
+#finalRankingList li:nth-child(3) { background: rgba(205,127,50,0.10); }
+
+.rankPos {
+  font-size: 12px;
+  color: rgba(255,255,255,0.45);
+  min-width: 26px;
+}
+
+.rankH {
+  margin-left: auto;
+  color: #4a9eff;
+  font-size: 14px;
+  font-family: monospace;
+}
+
+#finalRankingPanel > button {
+  padding: 10px 24px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.65);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+#finalRankingPanel > button:hover { background: rgba(255,255,255,0.14); }
+
+/* =============================================
+   6단계 — 친구따라강남 플레이어 선택 버튼
+   ============================================= */
+#friendFollowList {
+  margin-bottom: 12px;
+}
+
+.friendFollowPlayerBtn {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  margin-bottom: 7px;
+  background: rgba(74,224,160,0.10);
+  border: 1px solid rgba(74,224,160,0.28);
+  border-radius: 8px;
+  color: #4ae0a0;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+.friendFollowPlayerBtn:hover { background: rgba(74,224,160,0.22); }
+
+/* 관리자 랭킹 목록 스타일 */
+#adminRankingList {
+  font-size: 11px;
+  color: rgba(255,215,0,0.8);
+  max-height: 130px;
+  overflow-y: auto;
+  margin-bottom: 4px;
+  font-family: monospace;
+}
+
 /* 피드백 */
 #quizFeedback {
   margin-top: 12px;
