@@ -34,6 +34,8 @@ const CFG = {
   PARACHUTE_FALL_ACCEL  : 25,    // 낙하산 발동 중 표류 가속도 (px/s²)
   PARACHUTE_LOCK_DROP   : 120,   // 낙하산 발동 중 추락 잠금 낙하 거리 (px)
   ELEVATOR_ANIM_MS      : 700,   // 엘리베이터 상승 카메라 애니메이션 시간 (ms)
+  AUTOPILOT_MS          : 10000, // 자율주행 지속 시간 (ms)
+  AUTOPILOT_STEP_MS     : 120,   // 자율주행 1스텝 입력 간격 (ms)
   // ── 저주 계열 ───────────────────────────────
   CURSE_CONFIRM_MS  : 5000,  // "저주를 거시겠습니까?" 확인 창 제한 시간 (ms)
   CURSE_COUNTDOWN_S : 3,     // "저주가 시작됩니다." 카운트다운 초 수
@@ -94,7 +96,7 @@ const ITEM_HANDLERS = {
   '엘리베이터' : () => { teleportUp(5); },
   '친구따라강남': () => { showFriendFollowOverlay(); },
   '꽝_고급'    : () => { console.log('[아이템] 꽝(고급) — 무효과'); },
-  '자율주행'   : () => { console.log('[아이템] 자율주행 발동 — 미구현'); },
+  '자율주행'   : () => { activateItem('자율주행', CFG.AUTOPILOT_MS); },
   '사다리'     : () => { console.log('[아이템] 사다리 발동 — 미구현'); },
   '당근'       : () => { console.log('[아이템] 당근 발동 — 미구현'); },
   '꽝'         : () => { console.log('[아이템] 꽝 — 무효과'); },
@@ -123,8 +125,9 @@ function isItemActive() {
 }
 
 // 아이템 활성화 — 충전식(낙하산류)은 횟수로, 나머지는 시간으로 관리
+// durationMs: 시간제 아이템의 지속 시간 (기본값 CFG.ITEM_DURATION_MS = 30초)
 // 이미 활성 아이템이 있으면 교체 여부를 물어봄 (중첩 불가)
-function activateItem(id) {
+function activateItem(id, durationMs = CFG.ITEM_DURATION_MS) {
   const now = Date.now();
   if (isItemActive()) {
     const cur = state.player.activeItem;
@@ -141,12 +144,12 @@ function activateItem(id) {
   const chargeInfo = ITEM_CHARGES[id];
   if (chargeInfo !== undefined) {
     // 충전식 — 낙하 때마다 1회 소모 또는 유효시간 초과 시 자동 제거
-    state.player.activeItem = { id, charges: chargeInfo.charges, endsAt: now + chargeInfo.durationMs };
+    state.player.activeItem = { id, charges: chargeInfo.charges, endsAt: now + chargeInfo.durationMs, durationMs: chargeInfo.durationMs };
     console.log(`[아이템] ${id} 활성화 — ${chargeInfo.charges}회 / ${chargeInfo.durationMs / 1000}초`);
   } else {
-    // 시간제 — 30초 후 만료
-    state.player.activeItem = { id, endsAt: now + CFG.ITEM_DURATION_MS };
-    console.log(`[아이템] ${id} 활성화 — ${CFG.ITEM_DURATION_MS / 1000}초`);
+    // 시간제 — durationMs 초 후 만료 (durationMs를 아이템에 저장해 HUD에서 참조)
+    state.player.activeItem = { id, endsAt: now + durationMs, durationMs };
+    console.log(`[아이템] ${id} 활성화 — ${durationMs / 1000}초`);
   }
 }
 
@@ -481,6 +484,7 @@ const state = {
     teleportFlashAt     : 0,    // 순간이동 플래시 시작 시각 (0 = 비활성)
     teleportFlashLabel  : '',   // 순간이동 플래시 텍스트
     elevating           : null, // 엘리베이터 상승 애니메이션: null | { fromX, fromY, toX, toY, startAt, durationMs }
+    autoInputAt         : 0,   // 자율주행 다음 자동 입력 만료 시각 (0 = 비활성)
   },
   camera: { x: 0, y: 0 },
   friendFollow: { active: false }, // 친구따라강남 오버레이 활성 여부
@@ -588,6 +592,7 @@ function handleInput(code) {
     player.teleportFlashAt    = 0;
     player.teleportFlashLabel = '';
     player.elevating          = null;
+    player.autoInputAt        = 0;
     state.friendFollow.active = false;
     hideFriendFollowOverlay();
     // 저주 상태 완전 초기화
@@ -811,9 +816,10 @@ function render() {
       pct   = rem / info.durationMs;
     } else {
       // 시간제: 총 지속 시간 고정 표시 + 바로 남은 비율 표현
-      const rem = Math.max(item.endsAt - Date.now(), 0);
-      label = `${item.id}  ${CFG.ITEM_DURATION_MS / 1000}초`;
-      pct   = rem / CFG.ITEM_DURATION_MS;
+      const totalMs = item.durationMs ?? CFG.ITEM_DURATION_MS;
+      const rem     = Math.max(item.endsAt - Date.now(), 0);
+      label = `${item.id}  ${totalMs / 1000}초`;
+      pct   = rem / totalMs;
     }
 
     ctx.font         = 'bold 14px sans-serif';
@@ -955,6 +961,24 @@ function render() {
       ctx.fillText(player.teleportFlashLabel, W / 2, H / 2 - 60);
       ctx.globalAlpha  = 1;
     }
+  }
+
+  // --- 자율주행 활성 표시 ---
+  if (player.activeItem?.id === '자율주행' && isItemActive()) {
+    // 화면 테두리 초록 글로우
+    const pulse = 0.35 + 0.15 * Math.sin(Date.now() / 200);
+    ctx.strokeStyle = `rgba(74, 224, 160, ${pulse})`;
+    ctx.lineWidth   = 6;
+    ctx.strokeRect(3, 3, W - 6, H - 6);
+
+    // "AUTO" 뱃지 (우상단)
+    ctx.font         = 'bold 13px monospace';
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle    = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(W - 68, 10, 58, 22);
+    ctx.fillStyle    = '#4ae0a0';
+    ctx.fillText('AUTO ▶', W - 14, 14);
   }
 
   // --- 퀴즈 타이머 바 (화면 상단 4px) ---
@@ -1218,6 +1242,19 @@ function loop() {
         handleInput(Math.floor(Math.random() * 4));
       }
     }
+  }
+
+  // 자율주행: 활성 중이면 AUTOPILOT_STEP_MS 마다 올바른 키를 자동 입력
+  if (player.activeItem?.id === '자율주행' && isItemActive()) {
+    if (player.phase === 'normal' && !player.elevating) {
+      if (player.autoInputAt === 0) player.autoInputAt = now + CFG.AUTOPILOT_STEP_MS;
+      if (now >= player.autoInputAt) {
+        handleInput(state.map[player.stepIndex]); // 현재 계단의 정답 키 자동 입력
+        player.autoInputAt = now + CFG.AUTOPILOT_STEP_MS;
+      }
+    }
+  } else {
+    player.autoInputAt = 0; // 자율주행 비활성/만료 시 타이머 초기화
   }
 
   // 카메라를 플레이어 위치로 부드럽게 추적 (엘리베이터 상승 중엔 빠르게 따라감)
