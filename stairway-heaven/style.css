@@ -275,6 +275,104 @@ html, body {
 #debugPanel button:hover { background: rgba(255, 255, 255, 0.16); }
 #debugPanel button:last-child { margin-bottom: 0; }
 
+/* =============================================
+   친구따라강남 오버레이
+   ============================================= */
+#friendFollowOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+#friendFollowPanel {
+  background: #12123a;
+  border: 2px solid rgba(74, 224, 160, 0.35);
+  border-radius: 16px;
+  padding: 32px 36px;
+  width: 340px;
+  color: #fff;
+  font-family: sans-serif;
+  text-align: center;
+}
+
+#friendFollowTitle {
+  font-size: 22px;
+  font-weight: bold;
+  color: #4ae0a0;
+  margin-bottom: 10px;
+}
+
+#friendFollowSub {
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 18px;
+}
+
+#friendFollowInput {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 18px;
+  outline: none;
+  text-align: center;
+  margin-bottom: 16px;
+}
+#friendFollowInput:focus { border-color: #4ae0a0; }
+
+#friendFollowBtns {
+  display: flex;
+  gap: 10px;
+}
+
+#friendFollowConfirm {
+  flex: 1;
+  padding: 11px;
+  background: #4ae0a0;
+  color: #07071a;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#friendFollowConfirm:hover { background: #30c888; }
+
+#friendFollowCancel {
+  flex: 1;
+  padding: 11px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 10px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#friendFollowCancel:hover { background: rgba(255,255,255,0.16); }
+
+/* 디버그 패널 숫자 입력 */
+#debugPanel input[type="number"] {
+  width: 100%;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 5px;
+  color: rgba(255,255,255,0.85);
+  font-size: 12px;
+  font-family: monospace;
+  outline: none;
+}
+#debugPanel input[type="number"]:focus { border-color: rgba(255,255,255,0.4); }
+
 /* 피드백 */
 #quizFeedback {
   margin-top: 12px;

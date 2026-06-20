@@ -82,7 +82,7 @@ const ITEM_HANDLERS = {
   '낙하산3개'  : () => { activateItem('낙하산3개'); },
   '진정제'     : () => { activateItem('진정제'); },
   '엘리베이터' : () => { teleportUp(5); },
-  '친구따라강남': () => { console.log('[아이템] 친구따라강남 발동 — 미구현'); },
+  '친구따라강남': () => { showFriendFollowOverlay(); },
   '꽝_고급'    : () => { console.log('[아이템] 꽝(고급) — 무효과'); },
   '자율주행'   : () => { console.log('[아이템] 자율주행 발동 — 미구현'); },
   '사다리'     : () => { console.log('[아이템] 사다리 발동 — 미구현'); },
@@ -187,6 +187,51 @@ function teleportUp(meters, animMs = CFG.ELEVATOR_ANIM_MS) {
   player.teleportFlashLabel = `↑ ${meters}m`;
 
   console.log(`[순간이동] +${meters}m → 계단 ${destIdx}번 (${(destIdx / CFG.STEPS_PER_M).toFixed(1)}m)`);
+}
+
+// 절대 높이(m)로 순간이동 — 친구따라강남 전용 (6단계에서 대상 플레이어 높이를 인수로 받음)
+function teleportToHeight(heightM) {
+  const { player, steps } = state;
+  if (player.phase !== 'normal') return;
+
+  const fromX    = getPlayerWorldX();
+  const fromY    = getPlayerWorldY();
+  const targetIdx = Math.min(Math.round(heightM * CFG.STEPS_PER_M), steps.length - 1);
+  const destIdx   = findSafeStep(targetIdx, player.stepIndex + 1);
+  const toX = steps[destIdx].x;
+  const toY = steps[destIdx].y - CFG.STEP_TOP;
+
+  player.stepIndex          = destIdx;
+  player.elevating          = { fromX, fromY, toX, toY, startAt: Date.now(), durationMs: CFG.ELEVATOR_ANIM_MS };
+  player.teleportFlashAt    = Date.now();
+  player.teleportFlashLabel = `↑ ${(destIdx / CFG.STEPS_PER_M).toFixed(1)}m`;
+
+  console.log(`[친구따라강남] ${heightM}m 지정 → 계단 ${destIdx}번 (${(destIdx / CFG.STEPS_PER_M).toFixed(1)}m)`);
+}
+
+// 친구따라강남 오버레이 표시 / 숨김
+// 6단계에서 showFriendFollowOverlay는 대상 플레이어 이름을 받아 표시하도록 수정 예정
+function showFriendFollowOverlay() {
+  if (state.player.phase !== 'normal') return;
+  state.friendFollow.active = true;
+  const currentH = (state.player.stepIndex / CFG.STEPS_PER_M).toFixed(1);
+  const input = document.getElementById('friendFollowInput');
+  input.value       = '';
+  input.placeholder = `현재 ${currentH}m 이상 입력`;
+  document.getElementById('friendFollowOverlay').classList.remove('hidden');
+  setTimeout(() => input.focus(), 50);
+}
+
+function hideFriendFollowOverlay() {
+  state.friendFollow.active = false;
+  document.getElementById('friendFollowOverlay').classList.add('hidden');
+}
+
+// 디버그 패널 전용: 높이 입력 후 즉시 이동 테스트
+function debugFriendFollow() {
+  const h = parseFloat(document.getElementById('debugFriendHeight').value);
+  if (isNaN(h) || h <= 0) return;
+  teleportToHeight(h);
 }
 
 // =============================================
@@ -357,6 +402,7 @@ const state = {
     elevating           : null, // 엘리베이터 상승 애니메이션: null | { fromX, fromY, toX, toY, startAt, durationMs }
   },
   camera: { x: 0, y: 0 },
+  friendFollow: { active: false }, // 친구따라강남 오버레이 활성 여부
   quiz: {
     questions   : [],   // 파싱된 전체 문제 배열
     queue       : [],   // 남은 출제 큐 (셔플 순서)
@@ -424,11 +470,12 @@ function getPlayerWorldX() {
 function handleInput(code) {
   const { player, steps, map } = state;
 
-  // 퀴즈 진행 중 또는 0점 패널티 정지 중 또는 부활 연출 중 또는 엘리베이터 상승 중 — 모든 입력 차단
+  // 퀴즈 / 0점 패널티 / 부활 연출 / 엘리베이터 / 친구따라강남 오버레이 중 — 모든 입력 차단
   if (state.quiz.active) return;
   if (state.quiz.freezeUntil > Date.now()) return;
   if (player.phase === 'reviving') return;
   if (player.elevating) return;
+  if (state.friendFollow.active) return;
 
   // 게임오버: 아무 입력이나 재시작
   if (player.phase === 'gameover') {
@@ -448,6 +495,8 @@ function handleInput(code) {
     player.teleportFlashAt    = 0;
     player.teleportFlashLabel = '';
     player.elevating          = null;
+    state.friendFollow.active = false;
+    hideFriendFollowOverlay();
     state.quiz.active         = false;
     state.quiz.freezeUntil   = 0;
     state.quiz.nextAt        = state.quiz.questions.length > 0
@@ -967,15 +1016,17 @@ function loop() {
     player.elevating = null;
   }
 
-  // 퀴즈 타이머: normal 상태이고 엘리베이터 이동 중이 아닐 때만 발동
-  if (!state.quiz.active && state.quiz.questions.length > 0 &&
-      state.quiz.freezeUntil === 0 && state.quiz.nextAt > 0 &&
-      player.phase === 'normal' && !player.elevating && now >= state.quiz.nextAt) {
+  // 퀴즈 타이머: normal 상태이고 각종 오버레이·이동 중이 아닐 때만 발동
+  if (!state.quiz.active && !state.friendFollow.active &&
+      state.quiz.questions.length > 0 && state.quiz.freezeUntil === 0 &&
+      state.quiz.nextAt > 0 && player.phase === 'normal' &&
+      !player.elevating && now >= state.quiz.nextAt) {
     startQuiz();
   }
 
-  // 채찍 게이지: normal 상태이고 퀴즈/정지/엘리베이터 이동 중이 아닐 때만 누적
-  if (player.phase === 'normal' && !player.elevating && !state.quiz.active && state.quiz.freezeUntil === 0) {
+  // 채찍 게이지: normal 상태이고 각종 오버레이·이동 중이 아닐 때만 누적
+  if (player.phase === 'normal' && !player.elevating && !state.friendFollow.active &&
+      !state.quiz.active && state.quiz.freezeUntil === 0) {
     // 최초 초기화 (게임 시작 또는 재시작 직후)
     if (player.whipTickAt === 0) player.whipTickAt = now + getWhipInterval();
 
@@ -1341,3 +1392,28 @@ document.getElementById('xlsxInput').addEventListener('change', async (e) => {
 });
 
 document.getElementById('quizSubmit').addEventListener('click', submitQuizAnswer);
+
+// =============================================
+// 친구따라강남 오버레이 이벤트
+// =============================================
+
+document.getElementById('friendFollowConfirm').addEventListener('click', () => {
+  const input    = document.getElementById('friendFollowInput');
+  const h        = parseFloat(input.value);
+  const currentH = state.player.stepIndex / CFG.STEPS_PER_M;
+
+  if (isNaN(h) || h <= currentH) {
+    input.style.borderColor = '#ff4757';
+    return;
+  }
+  input.style.borderColor = '';
+  hideFriendFollowOverlay();
+  teleportToHeight(h);
+});
+
+document.getElementById('friendFollowCancel').addEventListener('click', hideFriendFollowOverlay);
+
+// Enter 키로도 확인 가능
+document.getElementById('friendFollowInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('friendFollowConfirm').click();
+});

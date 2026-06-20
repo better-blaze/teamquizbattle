@@ -23,6 +23,11 @@
       <button onclick="useItem('진정제')">진정제</button>
       <button onclick="useItem('엘리베이터')">엘리베이터</button>
       <button onclick="useItem('친구따라강남')">친구따라강남</button>
+    </div>
+    <div class="debugGroup">
+      <div class="debugLabel">친구따라강남 테스트</div>
+      <input type="number" id="debugFriendHeight" min="0" step="0.5" placeholder="목표 높이(m)" />
+      <button onclick="debugFriendFollow()">이동</button>
       <button onclick="useItem('꽝_고급')">꽝(고급)</button>
       <button onclick="useItem('자율주행')">자율주행</button>
     </div>
@@ -40,6 +45,19 @@
     <label id="uploadBtn" for="xlsxInput">문제 업로드</label>
     <input type="file" id="xlsxInput" accept=".xlsx,.xls" />
     <span id="uploadStatus">문제 없음</span>
+  </div>
+
+  <!-- 친구따라강남 오버레이 (6단계에서 플레이어 선택 UI로 교체 예정) -->
+  <div id="friendFollowOverlay" class="hidden">
+    <div id="friendFollowPanel">
+      <div id="friendFollowTitle">친구따라강남</div>
+      <p id="friendFollowSub">목표 높이(m)를 입력하세요</p>
+      <input type="number" id="friendFollowInput" min="0" step="0.5" />
+      <div id="friendFollowBtns">
+        <button id="friendFollowConfirm">예 — 이동!</button>
+        <button id="friendFollowCancel">아니오</button>
+      </div>
+    </div>
   </div>
 
   <!-- 퀴즈 오버레이 -->
