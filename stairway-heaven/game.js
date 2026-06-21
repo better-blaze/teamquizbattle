@@ -96,6 +96,8 @@ const ITEM_POOL = {
   일반: [
     { id: '사다리',      weight: 1 },
     { id: '당근',        weight: 1 },
+    { id: '숨고르기',    weight: 1 },
+    { id: '새치기',      weight: 1 },
     { id: '꽝',          weight: 2 },   // 꽝이 더 자주 나오도록 기본값 2
     { id: '폭죽',        weight: 1 },
     { id: '거울의 저주', weight: 0.5 }, // 저주 계열 — 낮은 확률
@@ -124,7 +126,12 @@ const ITEM_HANDLERS = {
   '꽝_고급'    : () => { console.log('[아이템] 꽝(고급) — 무효과'); },
   '자율주행'   : () => { activateItem('자율주행', CFG.AUTOPILOT_MS); },
   '사다리'     : () => { teleportUp(1); },
+  '새치기'     : () => { cutInLine(); },
   '당근'       : () => { activateItem('당근', CFG.CARROT_MS); },
+  '숨고르기'   : () => {
+    activateItem('숨고르기');
+    state.player.whipTickAt = 0; // 타이머 리셋 — 만료 후 바로 게이지 차지 않도록
+  },
   '꽝'         : () => { console.log('[아이템] 꽝 — 무효과'); },
   '폭죽'       : () => { activateItem('폭죽', CFG.FIREWORK_MS); },
   '거울의 저주': () => { startCurseConfirm('거울의 저주'); },
@@ -248,6 +255,34 @@ function teleportToHeight(heightM) {
   player.teleportFlashLabel = `↑ ${(destIdx / CFG.STEPS_PER_M).toFixed(1)}m`;
 
   console.log(`[친구따라강남] ${heightM}m 지정 → 계단 ${destIdx}번 (${(destIdx / CFG.STEPS_PER_M).toFixed(1)}m)`);
+}
+
+// 새치기 — 바로 앞 등수(나보다 step이 가장 적게 높은) 플레이어보다 2칸 위 안전한 계단으로 이동
+function cutInLine() {
+  const { player, steps, online } = state;
+  if (player.phase !== 'normal') return;
+
+  // 나보다 위에 있는 플레이어 중 가장 가까운 한 명(바로 앞 등수) 선택
+  const justAbove = Object.values(online.otherPlayers)
+    .filter(op => op.step > player.stepIndex)
+    .sort((a, b) => a.step - b.step)[0];
+
+  if (!justAbove) {
+    console.log('[새치기] 앞에 있는 플레이어가 없음 — 효과 없음');
+    return;
+  }
+
+  const targetIdx = Math.min(justAbove.step + 2, steps.length - 1);
+  const destIdx   = findSafeStep(targetIdx, player.stepIndex + 1);
+  const fromX = getPlayerWorldX();
+  const fromY = getPlayerWorldY();
+
+  player.stepIndex          = destIdx;
+  player.elevating          = { fromX, fromY, toX: steps[destIdx].x, toY: steps[destIdx].y - CFG.STEP_TOP, startAt: Date.now(), durationMs: CFG.ELEVATOR_ANIM_MS };
+  player.teleportFlashAt    = Date.now();
+  player.teleportFlashLabel = '새치기!';
+
+  console.log(`[새치기] ${justAbove.name}(${(justAbove.step / CFG.STEPS_PER_M).toFixed(1)}m) 앞 → 계단 ${destIdx}번`);
 }
 
 // 친구따라강남 오버레이 표시 — 온라인이면 위에 있는 플레이어 목록, 오프라인이면 높이 입력
@@ -1901,9 +1936,10 @@ function loop() {
     startQuiz();
   }
 
-  // 채찍 게이지: normal 상태이고 각종 오버레이·이동·테스트 모드가 아닐 때만 누적
+  // 채찍 게이지: normal 상태이고 각종 오버레이·이동·테스트 모드·숨고르기 아이템이 아닐 때만 누적
+  const isBreathing = player.activeItem?.id === '숨고르기' && isItemActive();
   if (player.phase === 'normal' && !player.elevating && !state.friendFollow.active &&
-      !state.quiz.active && state.quiz.freezeUntil === 0 && !state.admin.testMode) {
+      !state.quiz.active && state.quiz.freezeUntil === 0 && !state.admin.testMode && !isBreathing) {
     // 최초 초기화 (게임 시작 또는 재시작 직후)
     if (player.whipTickAt === 0) player.whipTickAt = now + getWhipInterval();
 
