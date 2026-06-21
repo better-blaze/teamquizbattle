@@ -90,7 +90,6 @@ const ITEM_POOL = {
     { id: '진정제',      weight: 1 },
     { id: '엘리베이터',  weight: 1 },
     { id: '친구따라강남', weight: 1 },
-    { id: '꽝_고급',     weight: 1 },
     { id: '자율주행',    weight: 1 },
   ],
   일반: [
@@ -268,6 +267,8 @@ function cutInLine() {
     .sort((a, b) => a.step - b.step)[0];
 
   if (!justAbove) {
+    state.player.noticeAt  = Date.now();
+    state.player.noticeMsg = '새치기 할 상대가 없습니다.';
     console.log('[새치기] 앞에 있는 플레이어가 없음 — 효과 없음');
     return;
   }
@@ -1049,16 +1050,19 @@ const state = {
     whipTickAt        : 0,   // 다음 게이지 증가 만료 시각 (0 = 미초기화)
     whipFlashAt       : 0,   // 채찍 발동 플래시 시작 시각
     reviveEndsAt      : 0,   // 부활 연출 종료 만료 시각 (0 = 비활성)
-    pendingCard       : null, // 보유 중인 카드: null | 'normal' | 'premium' (4단계에서 사용)
-    cardNotifyAt      : 0,   // 카드 획득 알림 표시 시작 시각
+    pendingCard       : null, // (미사용 — 카드 오버레이로 대체)
+    cardNotifyAt      : 0,   // (미사용)
     activeItem          : null,  // 활성 아이템: null | { id, charges } | { id, endsAt }
     parachuteDeployed   : false, // 현재 낙하 중 낙하산이 펼쳐진 상태인지 (착지/게임오버 시 false로 리셋)
     teleportFlashAt     : 0,    // 순간이동 플래시 시작 시각 (0 = 비활성)
     teleportFlashLabel  : '',   // 순간이동 플래시 텍스트
+    noticeAt            : 0,    // 범용 알림 메시지 시작 시각 (0 = 비활성)
+    noticeMsg           : '',   // 범용 알림 메시지 텍스트
     elevating           : null, // 엘리베이터 상승 애니메이션: null | { fromX, fromY, toX, toY, startAt, durationMs }
     autoInputAt         : 0,   // 자율주행 다음 자동 입력 만료 시각 (0 = 비활성)
   },
   camera: { x: 0, y: 0 },
+  cardOverlay : { active: false }, // 카드 선택 오버레이 활성 여부
   fireworks   : [], // 폭죽 파티클 배열: [{ worldX, worldY, vx, vy, color, spawnedAt, lifetime }]
   dummyPlayers: [], // 더미 플레이어 배열 (5단계 부하 테스트용): [{ id, name, stepPos, stepsPerSec, lastUpdateAt, color }]
   admin: {
@@ -1157,8 +1161,9 @@ function getPlayerWorldX() {
 function handleInput(code) {
   const { player, steps, map } = state;
 
-  // 퀴즈 / 0점 패널티 / 부활 연출 / 엘리베이터 / 친구따라강남 오버레이 중 — 모든 입력 차단
+  // 퀴즈 / 카드선택 / 0점 패널티 / 부활 연출 / 엘리베이터 / 친구따라강남 오버레이 중 — 모든 입력 차단
   if (state.quiz.active) return;
+  if (state.cardOverlay.active) return;
   if (state.quiz.freezeUntil > Date.now()) return;
   if (player.phase === 'reviving') return;
   if (player.elevating) return;
@@ -1647,6 +1652,23 @@ function render() {
     }
   }
 
+  // --- 범용 알림 메시지 (2초, 노란색) ---
+  if (player.noticeAt > 0) {
+    const elapsed = Date.now() - player.noticeAt;
+    if (elapsed < 2000) {
+      const progress = elapsed / 2000;
+      ctx.globalAlpha  = 1 - progress;
+      ctx.font         = 'bold 30px sans-serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle    = '#ffd700';
+      ctx.fillText(player.noticeMsg, W / 2, H / 2 - 60);
+      ctx.globalAlpha  = 1;
+    } else {
+      player.noticeAt = 0;
+    }
+  }
+
   // --- 자율주행 활성 표시 ---
   if (player.activeItem?.id === '자율주행' && isItemActive()) {
     // 화면 테두리 초록 글로우
@@ -1684,23 +1706,7 @@ function render() {
     ctx.fillText('천국 도착!', W / 2, H / 2);
   }
 
-  // --- 카드 획득 알림 (2초간 표시) ---
-  if (player.cardNotifyAt > 0) {
-    const elapsed  = Date.now() - player.cardNotifyAt;
-    if (elapsed < 2000) {
-      const alpha    = 1 - elapsed / 2000;
-      const isPrem   = player.pendingCard === 'premium';
-      const label    = isPrem ? '고급 카드 획득!' : '일반 카드 획득!';
-      const color    = isPrem ? '#b06eff' : '#4a9eff';
-      ctx.globalAlpha = alpha;
-      ctx.font         = 'bold 36px sans-serif';
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle    = color;
-      ctx.fillText(label, W / 2, H / 2 - 80);
-      ctx.globalAlpha  = 1;
-    }
-  }
+  // (카드 획득 알림 → HTML 오버레이로 대체됨)
 
   // --- 부활 메시지 ---
   if (player.phase === 'reviving') {
@@ -1999,7 +2005,7 @@ function loop() {
   // 채찍 게이지: normal 상태이고 각종 오버레이·이동·테스트 모드·숨고르기 아이템이 아닐 때만 누적
   const isBreathing = player.activeItem?.id === '숨고르기' && isItemActive();
   if (player.phase === 'normal' && !player.elevating && !state.friendFollow.active &&
-      !state.quiz.active && state.quiz.freezeUntil === 0 && !state.admin.testMode && !isBreathing) {
+      !state.quiz.active && !state.cardOverlay.active && state.quiz.freezeUntil === 0 && !state.admin.testMode && !isBreathing) {
     // 최초 초기화 (게임 시작 또는 재시작 직후)
     if (player.whipTickAt === 0) player.whipTickAt = now + getWhipInterval();
 
@@ -2324,6 +2330,77 @@ function submitQuizAnswer() {
   }, 1500);
 }
 
+// 가중치 기반 아이템 1개 무작위 선택
+function weightedPick(pool) {
+  const total = pool.reduce((s, { weight }) => s + weight, 0);
+  let r = Math.random() * total;
+  for (const item of pool) {
+    r -= item.weight;
+    if (r <= 0) return item.id;
+  }
+  return pool[pool.length - 1].id;
+}
+
+// 카드 선택 오버레이 표시
+// correctCount 2 → 일반 3장 / correctCount 3 → 일반 3장 + 고급 1~2장 (셔플)
+function showCardOverlay(correctCount) {
+  let cards = [
+    { id: weightedPick(ITEM_POOL.일반), type: 'normal' },
+    { id: weightedPick(ITEM_POOL.일반), type: 'normal' },
+    { id: weightedPick(ITEM_POOL.일반), type: 'normal' },
+  ];
+  if (correctCount >= 3) {
+    const premCount = Math.random() < 0.5 ? 1 : 2;
+    for (let i = 0; i < premCount; i++) {
+      cards.push({ id: weightedPick(ITEM_POOL.고급), type: 'premium' });
+    }
+    // 셔플 — 고급/일반 위치가 뒷면에선 구분 안 됨
+    for (let i = cards.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [cards[i], cards[j]] = [cards[j], cards[i]];
+    }
+  }
+
+  state.cardOverlay.active = true;
+  document.getElementById('cardTitle').textContent =
+    `정답 ${correctCount}개! 카드를 한 장 골라 뒤집으세요`;
+
+  const grid = document.getElementById('cardGrid');
+  grid.innerHTML = '';
+  let picked = false;
+
+  cards.forEach((card, idx) => {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = `
+      <div class="card-inner">
+        <div class="card-face card-back">?</div>
+        <div class="card-face card-front${card.type === 'premium' ? ' premium' : ''}">
+          <span class="card-icon">${card.type === 'premium' ? '⭐' : '🎁'}</span>
+          <span>${card.id}</span>
+        </div>
+      </div>`;
+    el.addEventListener('click', () => {
+      if (picked) return;
+      picked = true;
+      // 선택한 카드 + 나머지 전부 뒤집기
+      grid.querySelectorAll('.card').forEach((c, i) => {
+        c.classList.add('flipped', 'disabled');
+        if (i === idx) c.classList.add('selected-card');
+      });
+      // 1.5초 후 오버레이 닫고 아이템 적용
+      setTimeout(() => {
+        document.getElementById('cardOverlay').classList.add('hidden');
+        state.cardOverlay.active = false;
+        useItem(cards[idx].id);
+      }, 1500);
+    });
+    grid.appendChild(el);
+  });
+
+  document.getElementById('cardOverlay').classList.remove('hidden');
+}
+
 function finishQuiz() {
   const { quiz } = state;
   quiz.active = false;
@@ -2340,12 +2417,10 @@ function finishQuiz() {
     quiz.nextAt = now + CFG.QUIZ_INTERVAL_MS;
     console.log('[퀴즈] 1개 정답 → 무효과');
   } else {
-    // 2개 이상 정답: 카드 획득 — 4단계에서 UI·효과 구현
-    const cardType = correct >= 3 ? 'premium' : 'normal';
-    state.player.pendingCard  = cardType;
-    state.player.cardNotifyAt = now;
+    // 2개 이상 정답: 카드 선택 오버레이 표시
     quiz.nextAt = now + CFG.QUIZ_INTERVAL_MS;
-    console.log(`[퀴즈] ${correct}개 정답 → ${cardType === 'premium' ? '고급' : '일반'} 카드 획득`);
+    console.log(`[퀴즈] ${correct}개 정답 → 카드 선택 오버레이 표시`);
+    showCardOverlay(correct);
   }
 }
 
