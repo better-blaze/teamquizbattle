@@ -601,7 +601,9 @@ function startOffline() {
 }
 
 // 공통 입장 처리 — 재접속 시 step 복구
-async function doJoin(name, pin, isHost) {
+// preferredCharIndex: 캐릭터 선택 시 지정 인덱스, null이면 랜덤 배정
+// 반환값: { ok: true } | { ok: false } (지정 인덱스가 이미 사용 중이면 false)
+async function doJoin(name, pin, isHost, preferredCharIndex = null) {
   const uid = getPlayerUID();
 
   // 현재 방의 플레이어 스냅샷 한 번 읽기 (재접속 체크 + 캐릭터 인덱스 중복 방지)
@@ -612,18 +614,27 @@ async function doJoin(name, pin, isHost) {
     val    : () => allPlayersData[uid] ?? null,
   };
 
-  // 이미 사용 중인 캐릭터 인덱스를 제외하고 배정
+  // 이미 사용 중인 캐릭터 인덱스 수집 (내 UID 제외)
   const usedCharIndices = new Set(
     Object.entries(allPlayersData)
       .filter(([k]) => k !== uid)
       .map(([, v]) => v.charIndex)
       .filter(n => n != null),
   );
-  let charIdx = 0;
-  for (let j = 0; j < CHAR_COUNT; j++) {
-    if (!usedCharIndices.has(j)) { charIdx = j; break; }
+
+  if (preferredCharIndex !== null) {
+    if (usedCharIndices.has(preferredCharIndex)) {
+      return { ok: false }; // 선택한 캐릭터가 이미 다른 플레이어에게 선점됨
+    }
+    state.player.charIndex = preferredCharIndex;
+  } else {
+    // 랜덤 배정 — 사용 중이지 않은 첫 번째 인덱스 선택
+    let charIdx = 0;
+    for (let j = 0; j < CHAR_COUNT; j++) {
+      if (!usedCharIndices.has(j)) { charIdx = j; break; }
+    }
+    state.player.charIndex = charIdx;
   }
-  state.player.charIndex = charIdx;
   // 시작 계단 인덱스 — 이 아래로 추락하면 즉시 게임오버
   const startStepIdx = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
   state.player.startStepIndex = startStepIdx;
@@ -684,6 +695,7 @@ async function doJoin(name, pin, isHost) {
   state.gamePhase = 'playing';
   hideLoginOverlay();
   console.log(`[온라인] ${name} 입장 — PIN:${pin} (${isHost ? '호스트' : '학생'})`);
+  return { ok: true };
 }
 
 // 다른 플레이어 위치 실시간 감지
@@ -1419,6 +1431,8 @@ window.addEventListener('keydown', (e) => {
 // =============================================
 const canvas = document.getElementById('gameCanvas');
 const ctx    = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = 'high';
 
 function resizeCanvas() {
   canvas.width  = window.innerWidth;
@@ -2719,6 +2733,12 @@ document.getElementById('curseConfirmNo').addEventListener('click', cancelCurse)
   // 오프라인 플레이
   document.getElementById('btnOffline')?.addEventListener('click', startOffline);
 
+  // 캐릭터 선택 후 입장
+  document.getElementById('btnCharSelect')?.addEventListener('click', openCharSelectOverlay);
+
+  // 캐릭터 선택 취소
+  document.getElementById('btnCharSelectCancel')?.addEventListener('click', closeCharSelectOverlay);
+
   // Enter 키 지원
   document.getElementById('loginPin')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('btnJoin')?.click();
@@ -2726,4 +2746,149 @@ document.getElementById('curseConfirmNo').addEventListener('click', cancelCurse)
   document.getElementById('hostPin')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('btnCreate')?.click();
   });
+}
+
+// =============================================
+// 캐릭터 선택 오버레이
+// =============================================
+const _cso = { pin: null, name: null, timer: null, secLeft: 20, listenerRef: null, takenSet: new Set() };
+
+async function openCharSelectOverlay() {
+  if (!db) { showLoginMsg('오프라인 모드에서는 캐릭터 선택을 사용할 수 없습니다.'); return; }
+
+  const name = document.getElementById('loginName')?.value.trim() || '';
+  const pin  = document.getElementById('loginPin')?.value.trim() || '';
+  if (!validateLoginInputs(name, pin)) return;
+
+  showLoginMsg('PIN 확인 중...');
+  try {
+    const snap = await db.ref(`stairway/sessions/${pin}`).get();
+    if (!snap.exists()) { showLoginMsg('존재하지 않는 PIN입니다.'); return; }
+    if (snap.val().gameActive === false) { showLoginMsg('이미 종료된 방입니다.'); return; }
+
+    // 이름 중복 확인
+    const myUid = getPlayerUID();
+    const playersSnap = await db.ref(`stairway/sessions/${pin}/players`).get();
+    const playersData = playersSnap.val() || {};
+    const dup = Object.entries(playersData).find(([uid, pd]) => pd.name === name && uid !== myUid);
+    if (dup) { showLoginMsg(`'${name}'은(는) 이미 사용 중인 이름입니다.`); return; }
+
+    showLoginMsg('');
+    _cso.pin  = pin;
+    _cso.name = name;
+
+    // 초기 taken 세트 구성 후 오버레이 표시
+    _cso.takenSet = new Set(Object.values(playersData).map(pd => pd.charIndex).filter(n => n != null));
+    renderCharSelectGrid();
+    document.getElementById('charSelectMsg').textContent = '';
+    document.getElementById('charSelectOverlay').classList.remove('hidden');
+
+    // 실시간 리스너 — 새 플레이어 입장 시 taken 갱신
+    _cso.listenerRef = db.ref(`stairway/sessions/${pin}/players`);
+    _cso.listenerRef.on('value', s => {
+      _cso.takenSet = new Set(Object.values(s.val() || {}).map(pd => pd.charIndex).filter(n => n != null));
+      renderCharSelectGrid();
+    });
+
+    // 20초 카운트다운
+    _cso.secLeft = 20;
+    _updateCharSelectTimer();
+    _cso.timer = setInterval(() => {
+      _cso.secLeft--;
+      _updateCharSelectTimer();
+      if (_cso.secLeft <= 0) {
+        clearInterval(_cso.timer);
+        _charSelectAutoJoin(); // 시간 초과 → 랜덤 입장
+      }
+    }, 1000);
+  } catch (e) {
+    showLoginMsg('오류: ' + e.message);
+  }
+}
+
+function renderCharSelectGrid() {
+  const grid = document.getElementById('charSelectGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  for (let i = 0; i < CHAR_COUNT; i++) {
+    const taken = _cso.takenSet?.has(i) ?? false;
+    const el    = document.createElement('div');
+    el.className = 'char-option' + (taken ? ' taken' : '');
+    el.innerHTML = `<img src="images/char_${100 + i}.png" alt="캐릭터 ${i + 1}"><span>${i + 1}번</span>`;
+    if (!taken) el.addEventListener('click', () => _charSelectConfirm(i));
+    grid.appendChild(el);
+  }
+}
+
+function _updateCharSelectTimer() {
+  const el = document.getElementById('charSelectTimer');
+  if (!el) return;
+  el.textContent = _cso.secLeft;
+  el.classList.toggle('urgent', _cso.secLeft <= 5);
+}
+
+async function _charSelectConfirm(charIdx) {
+  // 실시간 업데이트 지연으로 인한 race condition 체크
+  if (_cso.takenSet?.has(charIdx)) {
+    document.getElementById('charSelectMsg').textContent =
+      '이미 다른 플레이어가 캐릭터를 사용하여 입장했습니다. 다른 캐릭터를 골라주세요.';
+    return;
+  }
+
+  // 그리드 잠금 (중복 클릭 방지)
+  const grid = document.getElementById('charSelectGrid');
+  if (grid) grid.style.pointerEvents = 'none';
+  document.getElementById('charSelectMsg').textContent = '입장 중...';
+  clearInterval(_cso.timer);
+  _cso.listenerRef?.off();
+
+  try {
+    const result = await doJoin(_cso.name, _cso.pin, false, charIdx);
+    if (result?.ok) {
+      document.getElementById('charSelectOverlay').classList.add('hidden');
+    } else {
+      // Firebase 기준으로 충돌 확정 → 오버레이 유지하고 메시지 표시 + 재활성화
+      document.getElementById('charSelectMsg').textContent =
+        '이미 다른 플레이어가 캐릭터를 사용하여 입장했습니다. 다른 캐릭터를 골라주세요.';
+      if (grid) grid.style.pointerEvents = '';
+
+      // 리스너·타이머 재시작
+      _cso.listenerRef = db.ref(`stairway/sessions/${_cso.pin}/players`);
+      _cso.listenerRef.on('value', s => {
+        _cso.takenSet = new Set(Object.values(s.val() || {}).map(pd => pd.charIndex).filter(n => n != null));
+        renderCharSelectGrid();
+      });
+      if (_cso.secLeft > 0) {
+        _cso.timer = setInterval(() => {
+          _cso.secLeft--;
+          _updateCharSelectTimer();
+          if (_cso.secLeft <= 0) { clearInterval(_cso.timer); _charSelectAutoJoin(); }
+        }, 1000);
+      } else {
+        _charSelectAutoJoin();
+      }
+    }
+  } catch (e) {
+    document.getElementById('charSelectMsg').textContent = '오류: ' + e.message;
+    if (grid) grid.style.pointerEvents = '';
+  }
+}
+
+async function _charSelectAutoJoin() {
+  closeCharSelectOverlay();
+  showLoginMsg('시간 초과 — 랜덤 캐릭터로 입장 중...');
+  try {
+    await doJoin(_cso.name, _cso.pin, false, null);
+  } catch (e) {
+    showLoginMsg('입장 실패: ' + e.message);
+  }
+}
+
+function closeCharSelectOverlay() {
+  clearInterval(_cso.timer);
+  _cso.timer = null;
+  _cso.listenerRef?.off();
+  _cso.listenerRef = null;
+  document.getElementById('charSelectOverlay').classList.add('hidden');
+  document.getElementById('charSelectGrid').style.pointerEvents = '';
 }

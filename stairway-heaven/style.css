@@ -204,6 +204,125 @@ html, body {
 #quizSubmit:disabled { background: rgba(255,255,255,0.14); cursor: default; }
 
 /* =============================================
+   캐릭터 선택 오버레이 (로그인 시)
+   ============================================= */
+#charSelectOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+
+#charSelectPanel {
+  background: #0e0e2e;
+  border: 2px solid rgba(74, 224, 160, 0.35);
+  border-radius: 18px;
+  padding: 24px 28px 20px;
+  width: min(480px, 96vw);
+  color: #fff;
+  font-family: sans-serif;
+  text-align: center;
+}
+
+#charSelectTitle {
+  font-size: 20px;
+  font-weight: bold;
+  color: #4ae0a0;
+  margin-bottom: 10px;
+}
+
+#charSelectTimerRow {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 16px;
+}
+
+#charSelectTimer {
+  font-size: 22px;
+  font-weight: bold;
+  color: #fff;
+  margin: 0 4px;
+  transition: color 0.3s;
+}
+
+#charSelectTimer.urgent { color: #ff4757; }
+
+#charSelectGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.char-option {
+  width: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 8px 4px 6px;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+
+.char-option:hover:not(.taken) {
+  border-color: #4ae0a0;
+  background: rgba(74, 224, 160, 0.12);
+}
+
+.char-option img {
+  width: 54px;
+  height: 70px;
+  object-fit: contain;
+}
+
+.char-option span {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* 이미 사용 중인 캐릭터 */
+.char-option.taken {
+  cursor: not-allowed;
+  border-color: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.30);
+}
+
+.char-option.taken img {
+  filter: grayscale(100%) brightness(0.4);
+}
+
+.char-option.taken span {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+#charSelectMsg {
+  min-height: 20px;
+  font-size: 13px;
+  color: #ff6b81;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+#btnCharSelectCancel {
+  padding: 8px 20px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#btnCharSelectCancel:hover { background: rgba(255, 255, 255, 0.13); }
+
+/* =============================================
    카드 선택 오버레이 (퀴즈 보상)
    ============================================= */
 #cardOverlay {
@@ -732,6 +851,15 @@ html, body {
 }
 .loginSection button:hover { background: #2a7ee0; }
 
+/* 캐릭터 선택 버튼 — 초록 계열 */
+#btnCharSelect {
+  background: rgba(74, 224, 160, 0.20);
+  color: #4ae0a0;
+  border: 1.5px solid rgba(74, 224, 160, 0.50);
+  margin-top: 6px;
+}
+#btnCharSelect:hover { background: rgba(74, 224, 160, 0.35); }
+
 /* 선생님 방 만들기 버튼 — 골드 계열 */
 #btnCreate {
   background: rgba(255,215,0,0.85);
@@ -821,7 +949,6 @@ html, body {
 
 .podium-char {
   object-fit: contain;
-  image-rendering: pixelated;
 }
 #podiumImg1 { width: 90px;  height: 116px; }
 #podiumImg2 { width: 68px;  height:  88px; }
