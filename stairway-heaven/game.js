@@ -744,13 +744,16 @@ function adminClearDummies() {
 
 // 아이템 드롭다운 초기화 (페이지 로드 시 1회 호출)
 function initAdminItemSelect() {
-  const sel  = document.getElementById('adminItemSelect');
-  const all  = [...ITEM_POOL.고급, ...ITEM_POOL.일반];
-  all.forEach(({ id }) => {
-    const opt       = document.createElement('option');
-    opt.value       = id;
-    opt.textContent = id;
-    sel.appendChild(opt);
+  const all = [...ITEM_POOL.고급, ...ITEM_POOL.일반];
+  ['adminItemSelect', 'adminTargetItemSelect'].forEach(selId => {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    all.forEach(({ id }) => {
+      const opt       = document.createElement('option');
+      opt.value       = id;
+      opt.textContent = id;
+      sel.appendChild(opt);
+    });
   });
 }
 
@@ -1043,6 +1046,7 @@ async function doJoin(name, pin, isHost, preferredCharIndex = null) {
   listenGameState(pin);
   listenCurses(pin);
   listenMercy(pin);
+  listenIncomingItems(pin, uid);
 
   if (isHost) {
     // 호스트(선생님)만 관리자 랭킹 패널 표시
@@ -1100,8 +1104,8 @@ function listenPlayers(pin) {
       if (!data[uid]) delete state.online.otherPlayers[uid];
     }
 
-    // 호스트: 관리자 랭킹 갱신
-    if (state.online.isHost) updateAdminRanking();
+    // 호스트: 관리자 랭킹 및 플레이어 목록 갱신
+    if (state.online.isHost) { updateAdminRanking(); updateAdminPlayerList(); }
   });
 }
 
@@ -1156,6 +1160,77 @@ function listenMercy(pin) {
     state.curse.mercyAt   = Date.now();
     state.curse.mercyName = mercy.name;
   });
+}
+
+// 관리자가 보낸 아이템 수신 — 자신의 uid 경로를 감시
+function listenIncomingItems(pin, uid) {
+  const joinedAt = state.online.joinedAt;
+  db.ref(`stairway/sessions/${pin}/incomingItems/${uid}`).on('child_added', snap => {
+    const data = snap.val();
+    if (!data || data.t < joinedAt) return; // 접속 전 데이터 무시
+    useItem(data.itemId);
+  });
+}
+
+// 관리자 패널 플레이어 체크박스 목록 갱신 (listenPlayers 콜백에서 호출)
+function updateAdminPlayerList() {
+  const listEl = document.getElementById('adminPlayerList');
+  if (!listEl || !state.online.isHost) return;
+
+  // 기존 선택 상태 보존
+  const prevChecked = new Set(
+    [...listEl.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value)
+  );
+
+  const players = Object.entries(state.online.otherPlayers)
+    .filter(([uid]) => !uid.startsWith('dummy_'))
+    .map(([uid, op]) => ({ uid, name: op.name }));
+
+  if (!players.length) {
+    listEl.innerHTML = '<div style="font-size:10px;color:rgba(255,255,255,0.35);padding:2px 0;">접속한 플레이어 없음</div>';
+    return;
+  }
+
+  listEl.innerHTML = players.map(p => `
+    <label class="adminPlayerRow">
+      <input type="checkbox" class="adminPlayerCheck" value="${p.uid}" ${prevChecked.has(p.uid) ? 'checked' : ''} />
+      <span class="adminPlayerName">${p.name}</span>
+    </label>
+  `).join('');
+}
+
+// 선택된 플레이어에게 아이템을 Firebase로 전송
+async function adminSendItemToPlayers() {
+  const msgEl   = document.getElementById('adminSendItemMsg');
+  const showMsg = (txt, ok = false) => {
+    if (!msgEl) return;
+    msgEl.textContent = txt;
+    msgEl.style.color = ok ? '#2ed573' : '#ff6b81';
+  };
+
+  const itemId  = document.getElementById('adminTargetItemSelect')?.value;
+  if (!itemId)  { showMsg('아이템을 선택하세요.'); return; }
+
+  const checked = [...document.querySelectorAll('.adminPlayerCheck:checked')].map(cb => cb.value);
+  if (!checked.length) { showMsg('플레이어를 선택하세요.'); return; }
+
+  const pin = state.online.pin;
+  if (!db || !pin) { showMsg('방에 입장 후 사용하세요.'); return; }
+
+  const t = Date.now();
+  await Promise.all(checked.map(uid =>
+    db.ref(`stairway/sessions/${pin}/incomingItems/${uid}`).push({ itemId, t })
+  ));
+  showMsg(`${checked.length}명에게 [${itemId}] 발송!`, true);
+  setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 2500);
+}
+
+// 관리자 패널 접기/펼치기 토글
+function toggleAdminSection(sectionId, triggerEl) {
+  const section = document.getElementById(sectionId);
+  if (!section) return;
+  const hide = !section.classList.toggle('hidden');
+  if (triggerEl) triggerEl.textContent = (hide ? '▸ ' : '▾ ') + triggerEl.textContent.slice(2);
 }
 
 // 내 위치 Firebase에 쓰기 (400ms throttle)

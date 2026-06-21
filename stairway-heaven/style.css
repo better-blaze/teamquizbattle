@@ -621,6 +621,31 @@ html, body {
   flex-shrink: 0;
 }
 
+.adminCollapsibleHeader {
+  font-size: 11px;
+  color: rgba(255,215,0,0.70);
+  cursor: pointer;
+  padding: 2px 0;
+  user-select: none;
+}
+.adminCollapsibleHeader:hover { color: rgba(255,215,0,1); }
+
+.adminPlayerRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 3px;
+  cursor: pointer;
+}
+.adminPlayerRow input[type="checkbox"] { accent-color: #ffd700; flex-shrink: 0; }
+.adminPlayerName {
+  font-size: 11px;
+  color: rgba(255,255,255,0.80);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 #adminPanel button {
   padding: 4px 9px;
   margin-top: 4px;

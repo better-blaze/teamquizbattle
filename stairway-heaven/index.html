@@ -263,6 +263,16 @@
       <button onclick="adminClearDummies()">전체 삭제</button>
     </div>
 
+    <div class="adminGroup">
+      <div class="adminCollapsibleHeader" onclick="toggleAdminSection('adminPlayerTargetSection', this)">▸ 플레이어 아이템 적용</div>
+      <div id="adminPlayerTargetSection" class="hidden">
+        <div id="adminPlayerList" style="margin:4px 0;"></div>
+        <select id="adminTargetItemSelect" style="margin-top:4px;"></select>
+        <div id="adminSendItemMsg" style="font-size:11px;min-height:14px;margin:3px 0;"></div>
+        <button onclick="adminSendItemToPlayers()">선택 플레이어에 적용</button>
+      </div>
+    </div>
+
     <!-- 6단계: 온라인 랭킹 + 게임 종료 (호스트만 표시) -->
     <div class="adminGroup hidden" id="adminRankingGroup">
       <div class="adminLabel">실시간 랭킹</div>
