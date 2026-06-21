@@ -625,10 +625,10 @@ function hideFriendFollowOverlay() {
 // =============================================
 
 // =============================================
-// 캐릭터 이미지 (7단계) — char_100.png ~ char_110.png (11장)
+// 캐릭터 이미지 (7단계) — char_100.png ~ char_170.png (71장)
 // 이미지 로드 실패 시 기존 네모 그리기로 자동 폴백
 // =============================================
-const CHAR_COUNT       = 11;
+const CHAR_COUNT       = 71;
 const TEACHER_CHAR_IDX = -1; // 선생님 전용 캐릭터 인덱스 (학생 선택 목록에 미포함)
 const CHAR_IMAGES = Array.from({ length: CHAR_COUNT }, (_, i) => {
   const img = new Image();
@@ -911,8 +911,11 @@ async function createSession(name, pin) {
     state.steps  = buildSteps(state.map);
     console.log(`[맵] 목표 높이 ${targetHeight}m → 계단 ${CFG.MAP_LEN}개 생성`);
 
-    // 목표 높이를 settings에 저장 (다음 방 만들기 때 자동 로드)
-    if (db) db.ref(`${SETTINGS_PATH}/targetHeight`).set(targetHeight);
+    // 목표 높이·MAP_LEN을 settings에 저장 (클라이언트 실시간 리스너로 전파)
+    if (db) {
+      db.ref(`${SETTINGS_PATH}/targetHeight`).set(targetHeight);
+      db.ref(`${SETTINGS_PATH}/mapLen`).set(CFG.MAP_LEN);
+    }
 
     await db.ref(`stairway/sessions/${pin}`).set({
       createdAt  : Date.now(),
@@ -1037,6 +1040,11 @@ async function doJoin(name, pin, isHost, preferredCharIndex = null) {
     }
     state.player.charIndex = charIdx;
   }
+  // 입장 시점에 현재 CFG.MAP_LEN으로 맵 재생성 (settings 리스너가 이미 MAP_LEN을 갱신한 뒤)
+  state.map   = generateMap(CFG.SEED, CFG.MAP_LEN);
+  state.steps = buildSteps(state.map);
+  console.log(`[맵] doJoin — MAP_LEN=${CFG.MAP_LEN} (${CFG.MAP_LEN / CFG.STEPS_PER_M}m)`);
+
   // 시작 계단 인덱스 — 이 아래로 추락하면 즉시 게임오버
   const startStepIdx = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
   state.player.startStepIndex = startStepIdx;
