@@ -851,6 +851,36 @@ html, body {
 }
 .loginSection button:hover { background: #2a7ee0; }
 
+/* 선생님 로그인 패널 — 문제 업로드 영역 */
+#hostQuizArea {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+#hostXlsxInput { display: none; }
+#hostQuizUploadBtn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  background: rgba(255, 200, 80, 0.15);
+  color: #ffc850;
+  border: 1.5px solid rgba(255, 200, 80, 0.40);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+#hostQuizUploadBtn:hover { background: rgba(255, 200, 80, 0.28); }
+#hostUploadStatus {
+  font-size: 12px;
+  color: rgba(255,255,255,0.50);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 캐릭터 선택 버튼 — 초록 계열 */
 #btnCharSelect {
   background: rgba(74, 224, 160, 0.20);

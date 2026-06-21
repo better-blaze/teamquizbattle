@@ -34,6 +34,11 @@
         <div class="loginSectionTitle">선생님 — 방 만들기</div>
         <input id="hostName" type="text" placeholder="이름" maxlength="8" value="선생님" autocomplete="off" />
         <input id="hostPin" type="text" placeholder="PIN 설정 (숫자 4자리)" maxlength="4" inputmode="numeric" pattern="[0-9]*" autocomplete="off" />
+        <div id="hostQuizArea">
+          <label id="hostQuizUploadBtn" for="hostXlsxInput">문제 업로드</label>
+          <input type="file" id="hostXlsxInput" accept=".xlsx,.xls" />
+          <span id="hostUploadStatus">업로드 안 됨</span>
+        </div>
         <button id="btnCreate">방 만들기</button>
       </div>
 

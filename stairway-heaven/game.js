@@ -353,12 +353,25 @@ function hideFriendFollowOverlay() {
 // 캐릭터 이미지 (7단계) — char_100.png ~ char_110.png (11장)
 // 이미지 로드 실패 시 기존 네모 그리기로 자동 폴백
 // =============================================
-const CHAR_COUNT  = 11;
+const CHAR_COUNT       = 11;
+const TEACHER_CHAR_IDX = -1; // 선생님 전용 캐릭터 인덱스 (학생 선택 목록에 미포함)
 const CHAR_IMAGES = Array.from({ length: CHAR_COUNT }, (_, i) => {
   const img = new Image();
   img.src = `images/char_${100 + i}.png`;
   return img;
 });
+const TEACHER_IMAGE = new Image();
+TEACHER_IMAGE.src = 'images/teacher.png';
+
+// 선생님이 로그인 패널에서 업로드한 문제 (방 만들기 시 Firebase에 기록)
+let _pendingQuestions = null;
+
+// 캐릭터 인덱스 → 이미지 소스 경로
+function getCharImageSrc(charIndex) {
+  return charIndex === TEACHER_CHAR_IDX
+    ? 'images/teacher.png'
+    : `images/char_${100 + (charIndex ?? 0)}.png`;
+}
 
 // 더미 플레이어 이름·색상 풀
 const DUMMY_NAMES  = ['김민준', '이서연', '박지호', '최수아', '정우진', '한나라', '오민서', '윤채원',
@@ -526,13 +539,14 @@ function showLoginMsg(msg) {
 }
 
 // 이름·PIN 입력값 유효성 검사
-function validateLoginInputs(name, pin) {
+// isHost=true 이면 '선생님' 이름 허용 (방 만들기 전용)
+function validateLoginInputs(name, pin, isHost = false) {
   if (!name || name.length < 1 || name.length > 8 || name.includes(' ')) {
     showLoginMsg('이름은 1~8자, 공백 없이 입력하세요.');
     return false;
   }
-  if (name === '선생님') {
-    showLoginMsg("'선생님'은 사용할 수 없는 이름입니다.");
+  if (!isHost && name === '선생님') {
+    showLoginMsg("'선생님'은 학생이 사용할 수 없는 이름입니다.");
     return false;
   }
   if (!/^\d{4}$/.test(pin)) {
@@ -545,7 +559,7 @@ function validateLoginInputs(name, pin) {
 // 선생님: 방 만들기 (Firebase 세션 생성 후 입장)
 async function createSession(name, pin) {
   if (!db) { showLoginMsg('Firebase 연결 실패 — 오프라인으로 플레이하세요.'); return; }
-  if (!validateLoginInputs(name, pin)) return;
+  if (!validateLoginInputs(name, pin, true)) return;
   showLoginMsg('방 만드는 중...');
   try {
     await db.ref(`stairway/sessions/${pin}`).set({
@@ -553,6 +567,11 @@ async function createSession(name, pin) {
       gameActive: true,
       hostName  : name,
     });
+    // 선생님이 업로드한 문제를 Firebase에 저장 (학생들이 입장 시 읽어감)
+    if (_pendingQuestions && _pendingQuestions.length > 0) {
+      await db.ref(`stairway/sessions/${pin}/questions`).set(_pendingQuestions);
+      console.log(`[퀴즈] Firebase에 ${_pendingQuestions.length}문제 저장`);
+    }
     await doJoin(name, pin, true);
   } catch (e) {
     showLoginMsg('방 만들기 실패: ' + e.message);
@@ -603,6 +622,25 @@ function startOffline() {
 // 공통 입장 처리 — 재접속 시 step 복구
 // preferredCharIndex: 캐릭터 선택 시 지정 인덱스, null이면 랜덤 배정
 // 반환값: { ok: true } | { ok: false } (지정 인덱스가 이미 사용 중이면 false)
+// Firebase에서 문제를 읽어 로컬에 셔플 적용
+async function loadQuestionsFromFirebase(pin) {
+  if (!db) return;
+  try {
+    const snap = await db.ref(`stairway/sessions/${pin}/questions`).get();
+    if (!snap.exists()) return;
+    const raw = snap.val();
+    // Firebase는 배열을 객체({0:..., 1:...})로 저장하는 경우가 있으므로 변환
+    const questions = Array.isArray(raw) ? raw : Object.values(raw);
+    if (!questions.length) return;
+    state.quiz.questions = questions;
+    state.quiz.queue     = shuffleArray([...questions]);
+    state.quiz.nextAt    = Date.now() + CFG.QUIZ_INTERVAL_MS;
+    console.log(`[퀴즈] Firebase에서 ${questions.length}문제 로드 완료`);
+  } catch (e) {
+    console.error('[퀴즈] 문제 로드 실패:', e);
+  }
+}
+
 async function doJoin(name, pin, isHost, preferredCharIndex = null) {
   const uid = getPlayerUID();
 
@@ -622,7 +660,10 @@ async function doJoin(name, pin, isHost, preferredCharIndex = null) {
       .filter(n => n != null),
   );
 
-  if (preferredCharIndex !== null) {
+  if (isHost) {
+    // 선생님은 항상 teacher.png 캐릭터 사용
+    state.player.charIndex = TEACHER_CHAR_IDX;
+  } else if (preferredCharIndex !== null) {
     if (usedCharIndices.has(preferredCharIndex)) {
       return { ok: false }; // 선택한 캐릭터가 이미 다른 플레이어에게 선점됨
     }
@@ -692,8 +733,13 @@ async function doJoin(name, pin, isHost, preferredCharIndex = null) {
     document.getElementById('adminRankingGroup')?.classList.remove('hidden');
   }
 
+  // Firebase에서 문제 로드 (선생님·학생 모두 입장 시 자동 로드, 각자 로컬에서 셔플)
+  await loadQuestionsFromFirebase(pin);
+
   state.gamePhase = 'playing';
   hideLoginOverlay();
+  // 온라인 모드에서는 플레이 화면의 업로드 버튼 숨김 (로그인 패널에서만 업로드)
+  document.getElementById('uploadArea').style.display = 'none';
   console.log(`[온라인] ${name} 입장 — PIN:${pin} (${isHost ? '호스트' : '학생'})`);
   return { ok: true };
 }
@@ -861,7 +907,7 @@ async function showFinalRanking() {
     const slotEl = document.getElementById(`podium${rank}`);
     if (!slotEl) return;
     if (p) {
-      imgEl.src       = `images/char_${100 + (p.charIndex ?? 0)}.png`;
+      imgEl.src       = getCharImageSrc(p.charIndex);
       imgEl.alt       = p.name;
       nameEl.textContent = p.name;
       htEl.textContent   = `${(p.step / CFG.STEPS_PER_M).toFixed(1)}m`;
@@ -1452,7 +1498,7 @@ const CHAR_SCALE = 2.5;
 function drawCharacter(ctx, cx, topY, charIndex, fallbackColor) {
   const PW  = CFG.PLAYER_W;
   const PH  = CFG.PLAYER_H;
-  const img = CHAR_IMAGES[charIndex ?? 0];
+  const img = charIndex === TEACHER_CHAR_IDX ? TEACHER_IMAGE : CHAR_IMAGES[charIndex ?? 0];
   if (img && img.complete && img.naturalWidth > 0) {
     const dw = PW * CHAR_SCALE;
     const dh = PH * CHAR_SCALE;
@@ -2636,6 +2682,24 @@ function finishQuiz() {
 // =============================================
 // 이벤트 리스너 — 파일 업로드 / 퀴즈 제출
 // =============================================
+
+// 선생님 로그인 패널 — 방 만들기 전 문제 업로드
+document.getElementById('hostXlsxInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('hostUploadStatus');
+  statusEl.textContent = '파싱 중...';
+  try {
+    _pendingQuestions = await parseXlsx(file);
+    statusEl.textContent = `✓ ${_pendingQuestions.length}문제 준비됨`;
+    console.log('[퀴즈] 업로드 대기 중:', _pendingQuestions.length, '문제');
+  } catch (err) {
+    _pendingQuestions = null;
+    statusEl.textContent = '오류: ' + err.message;
+    console.error('[퀴즈] 파싱 오류:', err);
+  }
+  e.target.value = '';
+});
 
 document.getElementById('xlsxInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
