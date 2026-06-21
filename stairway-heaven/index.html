@@ -39,6 +39,11 @@
           <input type="file" id="hostXlsxInput" accept=".xlsx,.xls" />
           <span id="hostUploadStatus">업로드 안 됨</span>
         </div>
+        <div id="hostStartArea">
+          <label for="hostStartHeight">시작 위치</label>
+          <input type="number" id="hostStartHeight" min="0" step="0.5" value="0" placeholder="0" />
+          <span>m</span>
+        </div>
         <button id="btnCreate">방 만들기</button>
       </div>
 
@@ -92,6 +97,9 @@
 
       <!-- 4위 이하 목록 -->
       <ol id="finalRankingList" start="4"></ol>
+
+      <!-- 1~15등 높이 총합 -->
+      <div id="finalHeightSum"></div>
 
       <button onclick="document.getElementById('finalRankingOverlay').classList.add('hidden')">닫기</button>
     </div>

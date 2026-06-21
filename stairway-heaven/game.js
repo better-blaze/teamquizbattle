@@ -562,10 +562,12 @@ async function createSession(name, pin) {
   if (!validateLoginInputs(name, pin, true)) return;
   showLoginMsg('방 만드는 중...');
   try {
+    const startHeight = parseFloat(document.getElementById('hostStartHeight').value) || 0;
     await db.ref(`stairway/sessions/${pin}`).set({
-      createdAt : Date.now(),
-      gameActive: true,
-      hostName  : name,
+      createdAt  : Date.now(),
+      gameActive : true,
+      hostName   : name,
+      startHeight: startHeight,
     });
     // 선생님이 업로드한 문제를 Firebase에 저장 (학생들이 입장 시 읽어감)
     if (_pendingQuestions && _pendingQuestions.length > 0) {
@@ -643,6 +645,13 @@ async function loadQuestionsFromFirebase(pin) {
 
 async function doJoin(name, pin, isHost, preferredCharIndex = null) {
   const uid = getPlayerUID();
+
+  // 세션 루트에서 startHeight 읽기 (선생님이 방 만들 때 설정한 값)
+  const sessionSnap = await db.ref(`stairway/sessions/${pin}`).get();
+  const sessionData = sessionSnap.val() || {};
+  if (sessionData.startHeight != null) {
+    state.admin.startHeight = sessionData.startHeight;
+  }
 
   // 현재 방의 플레이어 스냅샷 한 번 읽기 (재접속 체크 + 캐릭터 인덱스 중복 방지)
   const allPlayersSnap = await db.ref(`stairway/sessions/${pin}/players`).get();
@@ -728,9 +737,13 @@ async function doJoin(name, pin, isHost, preferredCharIndex = null) {
   listenCurses(pin);
   listenMercy(pin);
 
-  // 호스트(선생님)만 관리자 랭킹 패널 표시
   if (isHost) {
+    // 호스트(선생님)만 관리자 랭킹 패널 표시
     document.getElementById('adminRankingGroup')?.classList.remove('hidden');
+  } else {
+    // 학생에게는 관리자 패널·DEV 버튼 숨김
+    document.getElementById('adminToggle').style.display = 'none';
+    document.getElementById('debugToggle').style.display = 'none';
   }
 
   // Firebase에서 문제 로드 (선생님·학생 모두 입장 시 자동 로드, 각자 로컬에서 셔플)
@@ -924,6 +937,16 @@ async function showFinalRanking() {
       const h = (p.step / CFG.STEPS_PER_M).toFixed(1);
       return `<li><span class="rankPos">${i + 4}위</span><strong>${p.name}</strong><span class="rankH">${h}m</span></li>`;
     }).join('');
+  }
+
+  // ── 1~15등 높이 총합 ──
+  const top15   = all.slice(0, 15);
+  const sumStep = top15.reduce((acc, p) => acc + (p.step || 0), 0);
+  const sumM    = (sumStep / CFG.STEPS_PER_M).toFixed(1);
+  const count   = top15.length;
+  const sumEl   = document.getElementById('finalHeightSum');
+  if (sumEl) {
+    sumEl.textContent = `우리반 1~${count}등의 높이 총합 = ${sumM}m`;
   }
 
   document.getElementById('finalRankingOverlay')?.classList.remove('hidden');
