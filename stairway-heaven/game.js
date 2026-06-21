@@ -344,6 +344,17 @@ function hideFriendFollowOverlay() {
 // 5단계 — 관리자 기능
 // =============================================
 
+// =============================================
+// 캐릭터 이미지 (7단계) — char_100.png ~ char_110.png (11장)
+// 이미지 로드 실패 시 기존 네모 그리기로 자동 폴백
+// =============================================
+const CHAR_COUNT  = 11;
+const CHAR_IMAGES = Array.from({ length: CHAR_COUNT }, (_, i) => {
+  const img = new Image();
+  img.src = `images/char_${100 + i}.png`;
+  return img;
+});
+
 // 더미 플레이어 이름·색상 풀
 const DUMMY_NAMES  = ['김민준', '이서연', '박지호', '최수아', '정우진', '한나라', '오민서', '윤채원',
                       '송하은', '임도윤', '강지유', '조서준'];
@@ -385,10 +396,26 @@ function adminForceItem() {
 function adminAddDummies() {
   const n      = Math.max(1, parseInt(document.getElementById('adminDummyCount').value) || 1);
   const maxPos = Math.max(state.player.stepIndex, CFG.STEPS_PER_M * 5);
+
+  // 현재 사용 중인 캐릭터 인덱스 수집 (내 플레이어 + 다른 플레이어 + 기존 더미)
+  const usedCharIndices = new Set([
+    state.player.charIndex,
+    ...Object.values(state.online.otherPlayers).map(op => op.charIndex),
+    ...state.dummyPlayers.map(d => d.charIndex),
+  ]);
+
   for (let i = 0; i < n; i++) {
     const idx     = state.dummyPlayers.length;
     const dId     = `dummy_${Date.now()}_${i}`;
     const stepPos = Math.random() * maxPos;
+
+    // 사용 안 된 캐릭터 인덱스 배정
+    let charIdx = 0;
+    for (let j = 0; j < CHAR_COUNT; j++) {
+      if (!usedCharIndices.has(j)) { charIdx = j; break; }
+    }
+    usedCharIndices.add(charIdx);
+
     const dummy   = {
       id          : dId,
       name        : DUMMY_NAMES[idx % DUMMY_NAMES.length],
@@ -397,6 +424,7 @@ function adminAddDummies() {
       lastUpdateAt: Date.now(),
       lastWriteAt : 0,
       color       : DUMMY_COLORS[idx % DUMMY_COLORS.length],
+      charIndex   : charIdx,
     };
     state.dummyPlayers.push(dummy);
 
@@ -404,7 +432,7 @@ function adminAddDummies() {
     if (db && state.online.enabled) {
       const stepIdx = Math.min(Math.floor(stepPos), state.steps.length - 1);
       const ref = db.ref(`stairway/sessions/${state.online.pin}/players/${dId}`);
-      ref.set({ name: dummy.name, step: stepIdx, x: state.steps[stepIdx].x, isFalling: false, t: Date.now() });
+      ref.set({ name: dummy.name, step: stepIdx, x: state.steps[stepIdx].x, isFalling: false, charIndex: charIdx, t: Date.now() });
       ref.onDisconnect().remove();
     }
   }
@@ -555,8 +583,26 @@ function startOffline() {
 async function doJoin(name, pin, isHost) {
   const uid = getPlayerUID();
 
-  // 재접속 체크: 이미 같은 UID의 데이터가 Firebase에 있으면 step 복구
-  const existSnap = await db.ref(`stairway/sessions/${pin}/players/${uid}`).get();
+  // 현재 방의 플레이어 스냅샷 한 번 읽기 (재접속 체크 + 캐릭터 인덱스 중복 방지)
+  const allPlayersSnap = await db.ref(`stairway/sessions/${pin}/players`).get();
+  const allPlayersData = allPlayersSnap.val() || {};
+  const existSnap = {
+    exists : () => allPlayersData[uid] != null,
+    val    : () => allPlayersData[uid] ?? null,
+  };
+
+  // 이미 사용 중인 캐릭터 인덱스를 제외하고 배정
+  const usedCharIndices = new Set(
+    Object.entries(allPlayersData)
+      .filter(([k]) => k !== uid)
+      .map(([, v]) => v.charIndex)
+      .filter(n => n != null),
+  );
+  let charIdx = 0;
+  for (let j = 0; j < CHAR_COUNT; j++) {
+    if (!usedCharIndices.has(j)) { charIdx = j; break; }
+  }
+  state.player.charIndex = charIdx;
   // 시작 계단 인덱스 — 이 아래로 추락하면 즉시 게임오버
   const startStepIdx = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
   state.player.startStepIndex = startStepIdx;
@@ -592,11 +638,12 @@ async function doJoin(name, pin, isHost) {
 
   // 초기 위치 Firebase에 즉시 쓰기
   await db.ref(`stairway/sessions/${pin}/players/${uid}`).set({
-    name     : name,
-    step     : state.player.stepIndex,
-    x        : state.steps[state.player.stepIndex].x,
-    isFalling: false,
-    t        : Date.now(),
+    name      : name,
+    step      : state.player.stepIndex,
+    x         : state.steps[state.player.stepIndex].x,
+    isFalling : false,
+    charIndex : state.player.charIndex,
+    t         : Date.now(),
   });
 
   // 연결 끊기면 Firebase에서 자동 제거
@@ -637,6 +684,7 @@ function listenPlayers(pin) {
           displayStep: pd.step || 0,  // 보간용 — 목표값으로 즉시 초기화
           displayX   : pd.x   || 0,
           color      : assignPlayerColor(uid),
+          charIndex  : pd.charIndex ?? 0,
         };
       } else {
         const op = state.online.otherPlayers[uid];
@@ -714,11 +762,12 @@ function writePlayerData() {
   const { player, steps, online } = state;
   if (!db || !online.enabled) return;
   db.ref(`stairway/sessions/${online.pin}/players/${online.playerId}`).update({
-    name     : online.playerName,
-    step     : player.stepIndex,
-    x        : steps[player.stepIndex]?.x ?? 0,
-    isFalling: player.phase !== 'normal',
-    t        : Date.now(),
+    name      : online.playerName,
+    step      : player.stepIndex,
+    x         : steps[player.stepIndex]?.x ?? 0,
+    isFalling : player.phase !== 'normal',
+    charIndex : player.charIndex,
+    t         : Date.now(),
   });
 }
 
@@ -1038,6 +1087,7 @@ const state = {
   player: {
     stepIndex         : 0,
     startStepIndex    : 0,   // 이 게임에서 출발한 계단 인덱스 — 이 아래로 추락 시 즉시 게임오버
+    charIndex         : 0,   // 캐릭터 이미지 인덱스 (0~CHAR_COUNT-1, char_100.png 기준)
     phase             : 'normal',
     fallFromY         : 0,   // 추락 시작 world-y (발판 y)
     fallFromStepIndex : -1,  // 추락 시작 발판 인덱스 (착지 즉시 복귀 방지)
@@ -1287,6 +1337,25 @@ resizeCanvas();
 // =============================================
 const DIR_LABELS = ['←', '→', '←←', '→→'];
 
+// 캐릭터 1명 그리기 — 이미지 로드 완료 시 PNG, 미완료 시 네모 폴백
+function drawCharacter(ctx, cx, topY, charIndex, fallbackColor) {
+  const PW  = CFG.PLAYER_W;
+  const PH  = CFG.PLAYER_H;
+  const img = CHAR_IMAGES[charIndex ?? 0];
+  if (img && img.complete && img.naturalWidth > 0) {
+    ctx.drawImage(img, cx - PW / 2, topY, PW, PH);
+  } else {
+    // 이미지 미로드 시 기존 네모 렌더
+    ctx.fillStyle = fallbackColor;
+    ctx.fillRect(cx - PW / 2, topY, PW, PH);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillRect(cx - PW / 2, topY, PW, 4);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(cx - 10, topY + 8, 6, 6);
+    ctx.fillRect(cx + 4,  topY + 8, 6, 6);
+  }
+}
+
 function render() {
   const W = canvas.width;
   const H = canvas.height;
@@ -1403,13 +1472,7 @@ function render() {
     drifting      : isDriftingWithChute ? '#b06eff' : '#ffb347',
     gameover      : '#666',
   };
-  ctx.fillStyle = PLAYER_COLOR[player.phase] || '#ff4757';
-  ctx.fillRect(px - PW / 2, top, PW, PH);
-  ctx.fillStyle = 'rgba(255,255,255,0.25)';
-  ctx.fillRect(px - PW / 2, top, PW, 4);
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(px - 10, top + 8, 6, 6);
-  ctx.fillRect(px + 4,  top + 8, 6, 6);
+  drawCharacter(ctx, px, top, state.player.charIndex, PLAYER_COLOR[player.phase] || '#ff4757');
 
   // 낙하산 캐노피 — 표류 중 낙하산 활성화 시 플레이어 위에 표시
   if (isDriftingWithChute) {
@@ -1434,13 +1497,7 @@ function render() {
     const dsx  = toSx(step.x);
     const dsy  = toSy(step.y - CFG.STEP_TOP) - CFG.PLAYER_H;
     if (dsy < -60 || dsy > H + 60) continue; // 화면 밖 건너뜀
-    ctx.fillStyle = d.color;
-    ctx.fillRect(dsx - CFG.PLAYER_W / 2, dsy, CFG.PLAYER_W, CFG.PLAYER_H);
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.fillRect(dsx - CFG.PLAYER_W / 2, dsy, CFG.PLAYER_W, 4);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(dsx - 10, dsy + 8, 6, 6);
-    ctx.fillRect(dsx + 4,  dsy + 8, 6, 6);
+    drawCharacter(ctx, dsx, dsy, d.charIndex ?? 0, d.color);
     ctx.font         = 'bold 10px sans-serif';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
@@ -1456,13 +1513,7 @@ function render() {
     const dsx  = toSx(op.displayX ?? step.x);
     const dsy  = toSy(step.y - CFG.STEP_TOP) - CFG.PLAYER_H;
     if (dsy < -60 || dsy > H + 60) continue;
-    ctx.fillStyle = op.color;
-    ctx.fillRect(dsx - CFG.PLAYER_W / 2, dsy, CFG.PLAYER_W, CFG.PLAYER_H);
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.fillRect(dsx - CFG.PLAYER_W / 2, dsy, CFG.PLAYER_W, 4);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(dsx - 10, dsy + 8, 6, 6);
-    ctx.fillRect(dsx + 4,  dsy + 8, 6, 6);
+    drawCharacter(ctx, dsx, dsy, op.charIndex ?? 0, op.color);
     ctx.font         = 'bold 10px sans-serif';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
