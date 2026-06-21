@@ -1338,12 +1338,17 @@ resizeCanvas();
 const DIR_LABELS = ['←', '→', '←←', '→→'];
 
 // 캐릭터 1명 그리기 — 이미지 로드 완료 시 PNG, 미완료 시 네모 폴백
+// topY = 히트박스 윗면 (발바닥 y - PLAYER_H). 이미지는 2.5배 확대해 발 위치를 맞춤
+const CHAR_SCALE = 2.5;
 function drawCharacter(ctx, cx, topY, charIndex, fallbackColor) {
   const PW  = CFG.PLAYER_W;
   const PH  = CFG.PLAYER_H;
   const img = CHAR_IMAGES[charIndex ?? 0];
   if (img && img.complete && img.naturalWidth > 0) {
-    ctx.drawImage(img, cx - PW / 2, topY, PW, PH);
+    const dw = PW * CHAR_SCALE;
+    const dh = PH * CHAR_SCALE;
+    // 발 위치(topY + PH)를 고정하고 위로 확대
+    ctx.drawImage(img, cx - dw / 2, topY + PH - dh, dw, dh);
   } else {
     // 이미지 미로드 시 기존 네모 렌더
     ctx.fillStyle = fallbackColor;
@@ -1457,12 +1462,55 @@ function render() {
     ctx.fillText(label, sx, sy - ST / 2);
   }
 
-  // 플레이어
+  const PW = CFG.PLAYER_W;
+  const PH = CFG.PLAYER_H;
+
+  // 다른 플레이어 이름을 캐릭터 오른쪽에 배경 박스와 함께 그리는 헬퍼
+  function drawNameRight(x, topHitbox, name, color) {
+    // 이미지 세로 중앙 = 발 위치(topHitbox+PH)에서 이미지 절반 높이만큼 위
+    const imgCenterY = topHitbox + PH - (PH * CHAR_SCALE) / 2;
+    const nameX      = x + (PW * CHAR_SCALE) / 2 + 6;
+    ctx.font         = 'bold 11px sans-serif';
+    const tw         = ctx.measureText(name).width;
+    const padX = 4, lineH = 16;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.60)';
+    ctx.beginPath();
+    ctx.roundRect(nameX - padX, imgCenterY - lineH / 2, tw + padX * 2, lineH, 4);
+    ctx.fill();
+    ctx.fillStyle    = color;
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, nameX, imgCenterY);
+  }
+
+  // --- 더미 플레이어 (먼저 그려서 내 캐릭터 아래에 위치) ---
+  for (const d of state.dummyPlayers) {
+    const dIdx = Math.floor(d.stepPos);
+    if (dIdx >= steps.length) continue;
+    const step = steps[dIdx];
+    const dsx  = toSx(step.x);
+    const dsy  = toSy(step.y - CFG.STEP_TOP) - PH;
+    if (dsy < -60 || dsy > H + 60) continue;
+    drawCharacter(ctx, dsx, dsy, d.charIndex ?? 0, d.color);
+    drawNameRight(dsx, dsy, d.name, d.color);
+  }
+
+  // --- 온라인 다른 플레이어 (먼저 그려서 내 캐릭터 아래에 위치) ---
+  for (const op of Object.values(state.online.otherPlayers)) {
+    const dIdx = Math.round(op.displayStep);
+    if (dIdx < 0 || dIdx >= steps.length) continue;
+    const step = steps[dIdx];
+    const dsx  = toSx(op.displayX ?? step.x);
+    const dsy  = toSy(step.y - CFG.STEP_TOP) - PH;
+    if (dsy < -60 || dsy > H + 60) continue;
+    drawCharacter(ctx, dsx, dsy, op.charIndex ?? 0, op.color);
+    drawNameRight(dsx, dsy, op.name, op.color);
+  }
+
+  // --- 내 플레이어 — 마지막에 그려서 항상 최상단 ---
   const worldX = getPlayerWorldX();
   const feetY  = getPlayerWorldY();
   const px     = toSx(worldX);
-  const PW     = CFG.PLAYER_W;
-  const PH     = CFG.PLAYER_H;
   const top    = toSy(feetY) - PH;
 
   const isDriftingWithChute = player.phase === 'drifting' && hasParachute();
@@ -1473,6 +1521,22 @@ function render() {
     gameover      : '#666',
   };
   drawCharacter(ctx, px, top, state.player.charIndex, PLAYER_COLOR[player.phase] || '#ff4757');
+
+  // 내 이름 — 이미지 바로 아래에 배경 박스와 함께 표시
+  if (state.online.playerName) {
+    const nameY = top + PH + 4;
+    ctx.font    = 'bold 12px sans-serif';
+    const tw    = ctx.measureText(state.online.playerName).width;
+    const padX  = 5, padY = 3;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.beginPath();
+    ctx.roundRect(px - tw / 2 - padX, nameY, tw + padX * 2, 14 + padY * 2, 4);
+    ctx.fill();
+    ctx.fillStyle    = '#fff';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(state.online.playerName, px, nameY + padY);
+  }
 
   // 낙하산 캐노피 — 표류 중 낙하산 활성화 시 플레이어 위에 표시
   if (isDriftingWithChute) {
@@ -1487,38 +1551,6 @@ function render() {
     ctx.moveTo(px - 22, chuteY); ctx.lineTo(px - PW / 2, top);
     ctx.moveTo(px + 22, chuteY); ctx.lineTo(px + PW / 2, top);
     ctx.stroke();
-  }
-
-  // --- 더미 플레이어 (게임 월드 내 — 6단계 실제 플레이어 렌더 자리) ---
-  for (const d of state.dummyPlayers) {
-    const dIdx = Math.floor(d.stepPos);
-    if (dIdx >= steps.length) continue;
-    const step = steps[dIdx];
-    const dsx  = toSx(step.x);
-    const dsy  = toSy(step.y - CFG.STEP_TOP) - CFG.PLAYER_H;
-    if (dsy < -60 || dsy > H + 60) continue; // 화면 밖 건너뜀
-    drawCharacter(ctx, dsx, dsy, d.charIndex ?? 0, d.color);
-    ctx.font         = 'bold 10px sans-serif';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillStyle    = d.color;
-    ctx.fillText(d.name, dsx, dsy - 2);
-  }
-
-  // --- 온라인 다른 플레이어 렌더 (6단계) ---
-  for (const op of Object.values(state.online.otherPlayers)) {
-    const dIdx = Math.round(op.displayStep);
-    if (dIdx < 0 || dIdx >= steps.length) continue;
-    const step = steps[dIdx];
-    const dsx  = toSx(op.displayX ?? step.x);
-    const dsy  = toSy(step.y - CFG.STEP_TOP) - CFG.PLAYER_H;
-    if (dsy < -60 || dsy > H + 60) continue;
-    drawCharacter(ctx, dsx, dsy, op.charIndex ?? 0, op.color);
-    ctx.font         = 'bold 10px sans-serif';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillStyle    = op.color;
-    ctx.fillText(op.name, dsx, dsy - 2);
   }
 
   // --- 폭죽 파티클 ---
