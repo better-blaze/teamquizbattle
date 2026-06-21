@@ -617,7 +617,16 @@ function listenCurses(pin) {
     if (isCurseInProgress()) {
       state.curse.queue.push(curse.type);
     } else {
-      activateCurseEffect(curse.type);
+      // countdownUntil이 아직 미래면 카운트다운 오버레이 표시 후 발동, 이미 지났으면 즉시 발동
+      const until = curse.countdownUntil ?? Date.now();
+      if (until > Date.now()) {
+        state.curse.countdownActive   = true;
+        state.curse.countdownItem     = curse.type;
+        state.curse.countdownUntil    = until;
+        state.curse.countdownIsCaster = false; // 나는 피해자 — 카운트다운 후 효과 적용
+      } else {
+        activateCurseEffect(curse.type);
+      }
     }
   });
 }
@@ -751,9 +760,21 @@ function commitCurse() {
   state.curse.confirmActive = false;
   document.getElementById('curseConfirmOverlay').classList.add('hidden');
 
-  state.curse.countdownActive = true;
-  state.curse.countdownItem   = itemId;
-  state.curse.countdownUntil  = Date.now() + CFG.CURSE_COUNTDOWN_S * 1000;
+  const countdownUntil = Date.now() + CFG.CURSE_COUNTDOWN_S * 1000;
+  state.curse.countdownActive   = true;
+  state.curse.countdownItem     = itemId;
+  state.curse.countdownUntil    = countdownUntil;
+  state.curse.countdownIsCaster = state.online.enabled; // 온라인에서 내가 건 저주는 나에게 적용 안 함
+
+  // 온라인: 카운트다운 시작 즉시 전파 → 다른 클라이언트도 카운트다운 오버레이 표시
+  if (state.online.enabled && db) {
+    db.ref(`stairway/sessions/${state.online.pin}/curses`).push({
+      caster        : state.online.playerName,
+      type          : itemId,
+      t             : Date.now(),
+      countdownUntil: countdownUntil,
+    });
+  }
   console.log(`[저주] ${itemId} 카운트다운 시작`);
 }
 
@@ -999,6 +1020,7 @@ const state = {
     countdownActive: false,  // "저주가 시작됩니다." 카운트다운 활성
     countdownItem  : '',     // 카운트다운 중인 저주 아이템 id
     countdownUntil : 0,      // 카운트다운 종료 만료 시각
+    countdownIsCaster: false, // true = 내가 건 저주(효과 미적용), false = 남이 건 저주(효과 적용)
     active         : null,   // 진행 중인 저주: null | { id, startAt, endsAt }
     queue          : [],     // 대기 중인 저주 id 배열 (순차 처리)
     mercyAt        : 0,      // "자비를 베푸셨습니다" 메시지 시작 시각 (0 = 비활성)
@@ -1853,17 +1875,11 @@ function loop() {
     if (now >= state.curse.confirmEndsAt) cancelCurse(); // 시간 초과 → 자비
   }
 
-  // 카운트다운 종료 → 효과 발동 (온라인이면 Firebase 전파, 오프라인이면 자기 화면에 직접 적용)
+  // 카운트다운 종료 → 효과 발동 (Firebase 전파는 commitCurse에서 이미 완료)
   if (state.curse.countdownActive && now >= state.curse.countdownUntil) {
-    if (state.online.enabled && db) {
-      // 온라인: Firebase에 저주 이벤트 기록 → 다른 플레이어 클라이언트에서 수신·적용
+    if (state.curse.countdownIsCaster) {
+      // 저주를 건 당사자는 효과를 받지 않음 — 카운트다운 오버레이만 표시하고 종료
       state.curse.countdownActive = false;
-      db.ref(`stairway/sessions/${state.online.pin}/curses`).push({
-        caster: state.online.playerName,
-        type  : state.curse.countdownItem,
-        t     : now,
-      });
-      console.log(`[저주] ${state.curse.countdownItem} — Firebase 전파 완료`);
     } else {
       activateCurseEffect(state.curse.countdownItem);
     }
