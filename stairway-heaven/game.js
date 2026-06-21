@@ -4,13 +4,13 @@
 // Firebase 초기화 (6단계 멀티플레이)
 // =============================================
 const FB_CONFIG = {
-  apiKey           : 'AIzaSyD6VKKUh_evt0kveIaCNIxRRTtIUDoWL48',
-  authDomain       : 'quiz-battle-royale-5f7a2.firebaseapp.com',
-  databaseURL      : 'https://quiz-battle-royale-5f7a2-default-rtdb.asia-southeast1.firebasedatabase.app',
-  projectId        : 'quiz-battle-royale-5f7a2',
-  storageBucket    : 'quiz-battle-royale-5f7a2.firebasestorage.app',
-  messagingSenderId: '692757063593',
-  appId            : '1:692757063593:web:02253e7c4b417db98a06b8',
+  apiKey           : 'AIzaSyCzZ804ZuZxP0wYj8TJYUl1rX8b29Xqmkg',
+  authDomain       : 'stairway-heaven-6c360.firebaseapp.com',
+  databaseURL      : 'https://stairway-heaven-6c360-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId        : 'stairway-heaven-6c360',
+  storageBucket    : 'stairway-heaven-6c360.firebasestorage.app',
+  messagingSenderId: '859935964768',
+  appId            : '1:859935964768:web:070a758de7564226604d05',
 };
 let db = null;
 try {
@@ -606,8 +606,10 @@ function listenGameState(pin) {
 
 // 저주 이벤트 감시 — 다른 플레이어가 쓴 저주를 내 화면에 적용
 function listenCurses(pin) {
+  const ref = db.ref(`stairway/sessions/${pin}/curses`);
+  ref.off();  // 재접속 시 이전 리스너 제거 — 중복 발동 방지
   const joinedAt = state.online.joinedAt;
-  db.ref(`stairway/sessions/${pin}/curses`).on('child_added', snap => {
+  ref.on('child_added', snap => {
     const curse = snap.val();
     if (!curse || curse.t < joinedAt) return;               // 접속 전 저주 무시
     if (curse.caster === state.online.playerName) return;   // 내가 건 저주는 무시
@@ -622,8 +624,10 @@ function listenCurses(pin) {
 
 // "자비를 베푸셨습니다" 이벤트 감시
 function listenMercy(pin) {
+  const ref = db.ref(`stairway/sessions/${pin}/mercy`);
+  ref.off();  // 재접속 시 이전 리스너 제거 — 중복 발동 방지
   const joinedAt = state.online.joinedAt;
-  db.ref(`stairway/sessions/${pin}/mercy`).on('child_added', snap => {
+  ref.on('child_added', snap => {
     const mercy = snap.val();
     if (!mercy || mercy.t < joinedAt) return;
     if (mercy.name === state.online.playerName) return; // 내 자비는 이미 로컬에서 표시
@@ -649,7 +653,11 @@ function writePlayerData() {
 function adminEndGame() {
   if (!state.online.isHost || !db) return;
   if (!confirm('게임을 종료하시겠습니까? 모든 플레이어에게 최종 순위가 표시됩니다.')) return;
-  db.ref(`stairway/sessions/${state.online.pin}/gameActive`).set(false);
+  const base = `stairway/sessions/${state.online.pin}`;
+  db.ref(`${base}/gameActive`).set(false);
+  // 저주·자비 이벤트 기록 삭제 — 다음 게임에 이전 이벤트가 재발동되지 않도록
+  db.ref(`${base}/curses`).remove();
+  db.ref(`${base}/mercy`).remove();
 }
 
 // 최종 순위 오버레이 표시
