@@ -111,6 +111,8 @@ const SETTINGS_PATH = 'stairway/settings';
 
 // 기본값 (Firebase에 설정이 없을 때 사용)
 const GAME_SETTINGS_DEFAULT = {
+  // 맵
+  mapLen            : 300,    // 총 계단 수 (STEPS_PER_M으로 나누면 최대 높이 m)
   // 채찍 게이지
   whipNStart        : 2000,   // 게이지 1 증가까지 허용 무입력 시간 (ms, 0m 기준)
   whipNEnd          : 200,    // 허용 시간 최솟값 (ms)
@@ -157,6 +159,7 @@ const GAME_SETTINGS_DEFAULT = {
 
 // GAME_SETTINGS_DEFAULT 키 → CFG 키 매핑표
 const SETTINGS_CFG_MAP = {
+  mapLen            : 'MAP_LEN',
   whipNStart        : 'WHIP_N_START',
   whipNEnd          : 'WHIP_N_END',
   whipHeightMax     : 'WHIP_HEIGHT_MAX',
@@ -191,26 +194,35 @@ function applySettings(s) {
   console.log('[설정] 적용 완료:', s);
 }
 
-// Firebase에서 설정 로드 — 없으면 기본값 유지
-async function loadSettings() {
-  if (!db) return;
-  try {
-    const snap = await db.ref(SETTINGS_PATH).get();
-    if (!snap.exists()) {
-      console.log('[설정] 저장된 설정 없음 — 기본값 사용');
-      return;
-    }
-    const saved = snap.val();
-    applySettings(saved);
-    // 목표 높이 — 로그인 패널 입력칸에 이전 값 복원
-    if (saved.targetHeight != null) {
-      const el = document.getElementById('hostTargetHeight');
-      if (el) el.value = saved.targetHeight;
-    }
-    console.log('[설정] Firebase에서 로드 완료');
-  } catch (e) {
-    console.error('[설정] 로드 실패 — 기본값 사용:', e.message);
-  }
+// 설정 실시간 리스너 — 교사가 저장하면 모든 클라이언트에 즉시 반영.
+// 첫 번째 콜백에서 Promise를 resolve해 게임 루프 시작 타이밍을 제어한다.
+function initSettingsListener() {
+  return new Promise(resolve => {
+    if (!db) { resolve(); return; }
+    let firstFire = false;
+    const fill = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+
+    db.ref(SETTINGS_PATH).on('value', snap => {
+      if (snap.exists()) {
+        const saved = snap.val();
+        applySettings(saved);
+        // 로그인 패널: 목표 높이 복원
+        if (saved.targetHeight != null) {
+          const el = document.getElementById('hostTargetHeight');
+          if (el) el.value = saved.targetHeight;
+        }
+        // 관리자 패널 채찍 설정 복원
+        fill('settingWhipNStart', saved.whipNStart);
+        fill('settingWhipNEnd',   saved.whipNEnd);
+        // 가상 키보드 전파 (교사가 토글하면 모든 클라이언트에 반영)
+        if (saved.virtualKeyboard != null) setVirtualKeyboardVisible(saved.virtualKeyboard);
+        if (firstFire) console.log('[설정] 실시간 업데이트 적용');
+      } else {
+        if (!firstFire) console.log('[설정] 저장된 설정 없음 — 기본값 사용');
+      }
+      if (!firstFire) { firstFire = true; resolve(); }
+    }, err => { console.error('[설정] 리스너 오류:', err.message); resolve(); });
+  });
 }
 
 // 현재 CFG·ITEM_POOL 값을 Firebase에 저장
@@ -219,6 +231,7 @@ async function saveSettings(overrides = {}) {
   const weights = {};
   [...ITEM_POOL.고급, ...ITEM_POOL.일반].forEach(item => { weights[item.id] = item.weight; });
   const current = {
+    mapLen            : CFG.MAP_LEN,
     whipNStart        : CFG.WHIP_N_START,
     whipNEnd          : CFG.WHIP_N_END,
     whipHeightMax     : CFG.WHIP_HEIGHT_MAX,
@@ -246,6 +259,33 @@ async function saveSettings(overrides = {}) {
   } catch (e) {
     console.error('[설정] 저장 실패:', e.message);
   }
+}
+
+// 관리자 패널에서 설정을 읽어 검증·적용·Firebase 저장
+async function adminSaveSettings() {
+  const msgEl = document.getElementById('adminSettingMsg');
+  const showMsg = (txt, ok = false) => {
+    if (!msgEl) return;
+    msgEl.textContent = txt;
+    msgEl.style.color = ok ? '#2ed573' : '#ff6b81';
+  };
+
+  const whipNStart = parseFloat(document.getElementById('settingWhipNStart')?.value);
+  const whipNEnd   = parseFloat(document.getElementById('settingWhipNEnd')?.value);
+
+  // 검증
+  if (!whipNStart || whipNStart <= 0) { showMsg('0m 값은 양수를 입력하세요.'); return; }
+  if (!whipNEnd   || whipNEnd   <= 0) { showMsg('500m 값은 양수를 입력하세요.'); return; }
+  if (whipNEnd >= whipNStart)         { showMsg('500m 값은 0m 값보다 작아야 합니다.'); return; }
+
+  // CFG에 즉시 반영 (실시간 리스너가 다른 클라이언트에도 전파)
+  CFG.WHIP_N_START = whipNStart;
+  CFG.WHIP_N_END   = whipNEnd;
+
+  // Firebase에 저장 (현재 CFG 전체 스냅샷)
+  await saveSettings();
+  showMsg('저장 완료!', true);
+  setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 2000);
 }
 
 // 충전식 아이템 — id별 사용 횟수와 유효시간 (이 목록에 없으면 시간제 아이템)
@@ -656,21 +696,35 @@ function showLoginOverlay() {
 }
 function hideLoginOverlay() {
   document.getElementById('loginOverlay')?.classList.add('hidden');
-  // 가상 키보드는 관리자 패널 체크박스 상태에 따라 표시 여부 결정
-  const vkCheck = document.getElementById('adminVirtualKeyboard');
-  if (vkCheck?.checked) {
-    document.getElementById('virtualKeyboard')?.classList.remove('hidden');
+  // Firebase에서 받은 최신 가상 키보드 상태 반영 (학생도 포함)
+  setVirtualKeyboardVisible(_virtualKeyboardEnabled);
+}
+
+// 가상 키보드 현재 활성 여부 (Firebase에서 받은 최신값 보관)
+let _virtualKeyboardEnabled = false;
+
+// 가상 키보드 표시 상태를 실제로 적용하는 단일 진입점
+function setVirtualKeyboardVisible(show) {
+  _virtualKeyboardEnabled = show;
+  const vk = document.getElementById('virtualKeyboard');
+  if (!vk) return;
+  if (show && state.gamePhase === 'playing') {
+    vk.classList.remove('hidden');
+  } else {
+    vk.classList.add('hidden');
   }
+  // 관리자 패널 체크박스도 동기화 (다른 클라이언트에서 변경된 경우)
+  const cb = document.getElementById('adminVirtualKeyboard');
+  if (cb) cb.checked = show;
 }
 
 function adminToggleVirtualKeyboard() {
   const checked = document.getElementById('adminVirtualKeyboard').checked;
-  const vk      = document.getElementById('virtualKeyboard');
-  // 게임 중일 때만 실제로 표시 (로그인/종료 화면에서는 숨김 유지)
-  if (checked && state.gamePhase === 'playing') {
-    vk.classList.remove('hidden');
+  if (db) {
+    // Firebase에 기록 → 리스너가 모든 클라이언트에 전파
+    db.ref(`${SETTINGS_PATH}/virtualKeyboard`).set(checked);
   } else {
-    vk.classList.add('hidden');
+    setVirtualKeyboardVisible(checked);
   }
 }
 
@@ -2667,8 +2721,8 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-// 설정 로드 후 게임 루프 시작 (로드 실패 시 기본값으로 진행)
-loadSettings().finally(() => loop());
+// 설정 실시간 리스너 등록 후 게임 루프 시작 (실패 시 기본값으로 진행)
+initSettingsListener().finally(() => loop());
 
 // =============================================
 // 퀴즈 — 엑셀 파싱 (quiz-battle-royale data.js 동일 로직)

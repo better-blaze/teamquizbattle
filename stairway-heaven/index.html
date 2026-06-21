@@ -234,6 +234,22 @@
     </div>
 
     <div class="adminGroup">
+      <div class="adminLabel">게임 설정</div>
+      <div class="adminSettingRow">
+        <span class="adminSettingKey">채찍 n값 (0m)</span>
+        <input type="number" id="settingWhipNStart" min="100" max="10000" step="100" value="2000" />
+        <span class="adminSettingUnit">ms</span>
+      </div>
+      <div class="adminSettingRow">
+        <span class="adminSettingKey">채찍 n값 (500m)</span>
+        <input type="number" id="settingWhipNEnd" min="50" max="5000" step="50" value="200" />
+        <span class="adminSettingUnit">ms</span>
+      </div>
+<div id="adminSettingMsg" style="font-size:12px;min-height:16px;margin:4px 0;"></div>
+      <button onclick="adminSaveSettings()">저장</button>
+    </div>
+
+    <div class="adminGroup">
       <div class="adminLabel">더미 플레이어 <span id="adminDummyStatus">0명</span></div>
       <input type="number" id="adminDummyCount" min="1" max="30" value="5" />
       <button onclick="adminAddDummies()">추가</button>
