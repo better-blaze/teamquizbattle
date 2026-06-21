@@ -871,13 +871,28 @@ async function adminEndGame() {
   if (!confirm('게임을 종료하시겠습니까? 모든 플레이어에게 최종 순위가 표시됩니다.')) return;
   const base = `stairway/sessions/${state.online.pin}`;
 
-  // 현재 플레이어 목록을 읽어 최종 순위 노드에 기록 (클라이언트가 일관된 순위 데이터 사용)
+  // 현재 플레이어 목록을 읽어 최종 순위 노드에 기록
   const snap = await db.ref(`${base}/players`).get();
   const playersData = snap.val() || {};
-  const rankings = Object.values(playersData)
+
+  // Firebase 플레이어 + 로컬 더미 플레이어 합산
+  // (더미는 onDisconnect로 Firebase에서 사라질 수 있으므로 로컬 state를 정답으로 사용)
+  const mergedPlayers = { ...playersData };
+  for (const d of state.dummyPlayers) {
+    mergedPlayers[d.id] = {
+      name     : d.name,
+      step     : Math.floor(d.stepPos),
+      charIndex: d.charIndex,
+    };
+  }
+
+  const rankings = Object.values(mergedPlayers)
     .map(pd => ({ name: pd.name, step: pd.step || 0, charIndex: pd.charIndex ?? 0 }))
     .sort((a, b) => b.step - a.step);
   await db.ref(`${base}/rankings`).set(rankings);
+
+  // 개인 기록 명예의 전당에 자동 저장 (await로 완료 보장)
+  await saveIndividualRecords(rankings);
 
   // 게임 종료 신호 (모든 클라이언트가 종료 감지)
   db.ref(`${base}/gameActive`).set(false);
@@ -887,6 +902,173 @@ async function adminEndGame() {
     db.ref(base).remove();
     console.log('[관리자] 세션 데이터 삭제 완료');
   }, 5000);
+}
+
+// =============================================
+// 명예의 전당 (기록판)
+// =============================================
+const HOF_PATH_INDIVIDUAL = 'stairway/hallOfFame/individual'; // 개인 기록
+const HOF_PATH_CLASS      = 'stairway/hallOfFame/class';      // 반 합동기록
+const HOF_PWD             = '0257';
+const HOF_LIMIT           = 10;
+let _lastSumScore = 0; // 시상대 화면의 총합 점수 (반 합동기록 저장 시 사용)
+
+// 개인 기록 자동 저장 — adminEndGame 에서 호출, 상위 10개만 유지
+async function saveIndividualRecords(rankings) {
+  if (!db) return;
+  console.log(`[기록판] 개인 기록 저장 시작 — ${rankings.length}명:`,
+    rankings.map(r => `${r.name}(${(r.step / CFG.STEPS_PER_M).toFixed(1)}m)`).join(', '));
+  try {
+    const now = Date.now();
+    // 이번 게임 모든 플레이어 기록을 순차 저장 (병렬 push 누락 방지)
+    for (const p of rankings) {
+      await db.ref(HOF_PATH_INDIVIDUAL).push({
+        name   : p.name,
+        score  : parseFloat((p.step / CFG.STEPS_PER_M).toFixed(1)),
+        savedAt: now,
+      });
+    }
+    // 전체 기록 읽기 → 상위 10개 초과 분 삭제
+    const snap = await db.ref(HOF_PATH_INDIVIDUAL).get();
+    const all  = [];
+    snap.forEach(child => { all.push({ key: child.key, ...child.val() }); });
+    all.sort((a, b) => b.score - a.score);
+    console.log(`[기록판] Firebase 전체 기록 ${all.length}개, ${all.slice(HOF_LIMIT).length}개 삭제 예정`);
+    await Promise.all(all.slice(HOF_LIMIT).map(e =>
+      db.ref(`${HOF_PATH_INDIVIDUAL}/${e.key}`).remove()
+    ));
+    console.log(`[기록판] 개인 기록 저장 완료 — ${Math.min(all.length, HOF_LIMIT)}개 유지`);
+  } catch (e) {
+    console.error('[기록판] 개인 기록 저장 실패:', e);
+  }
+}
+
+// 한 섹션의 기록을 읽어 HTML 렌더링
+async function renderHofSection(path, listEl, nameField) {
+  listEl.innerHTML = '<div class="hofLoading">불러오는 중...</div>';
+  try {
+    const snap    = await db.ref(path).get();
+    const entries = [];
+    snap.forEach(child => { entries.push({ key: child.key, ...child.val() }); });
+    entries.sort((a, b) => b.score - a.score);
+    const top = entries.slice(0, HOF_LIMIT);
+    if (top.length === 0) {
+      listEl.innerHTML = '<div class="hofEmpty">아직 기록이 없습니다.</div>';
+      return;
+    }
+    listEl.innerHTML = top.map((e, i) => {
+      const label = e[nameField] ?? '-';
+      const date  = new Date(e.savedAt).toLocaleDateString('ko-KR');
+      return `<div class="hofRow">
+        <span class="hofRank">${i + 1}위</span>
+        <span class="hofName">${label}</span>
+        <span class="hofScore">${Number(e.score).toFixed(1)}m</span>
+        <span class="hofDate">${date}</span>
+        <button class="hofDelBtn" onclick="deleteHofEntry('${e.key}','${path}')">✕</button>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div class="hofEmpty">불러오기 실패</div>';
+    console.error('[기록판] 조회 실패:', e);
+  }
+}
+
+// 명예의 전당 오버레이 열기 (두 섹션 병렬 로드)
+async function openHallOfFame() {
+  document.getElementById('hallOfFameOverlay').classList.remove('hidden');
+  if (!db) {
+    document.getElementById('hofListIndividual').innerHTML = '<div class="hofEmpty">Firebase 연결 필요</div>';
+    document.getElementById('hofListClass').innerHTML      = '<div class="hofEmpty">Firebase 연결 필요</div>';
+    return;
+  }
+  await Promise.all([
+    renderHofSection(HOF_PATH_INDIVIDUAL, document.getElementById('hofListIndividual'), 'name'),
+    renderHofSection(HOF_PATH_CLASS,      document.getElementById('hofListClass'),      'nickname'),
+  ]);
+}
+
+// 비밀번호 확인 모달 — 확인 시 callback 실행
+let _hofPwdCallback = null;
+
+function openHofPwdModal(callback) {
+  _hofPwdCallback = callback;
+  document.getElementById('hofPwdInput').value = '';
+  document.getElementById('hofPwdMsg').textContent = '';
+  document.getElementById('hofPwdOverlay').classList.remove('hidden');
+  document.getElementById('hofPwdInput').focus();
+}
+
+function closeHofPwdModal() {
+  document.getElementById('hofPwdOverlay').classList.add('hidden');
+  _hofPwdCallback = null;
+}
+
+function confirmHofPwd() {
+  const pwd = document.getElementById('hofPwdInput').value;
+  if (pwd !== HOF_PWD) {
+    document.getElementById('hofPwdMsg').textContent = '암호가 틀렸습니다.';
+    document.getElementById('hofPwdInput').value = '';
+    document.getElementById('hofPwdInput').focus();
+    return;
+  }
+  closeHofPwdModal();
+  if (_hofPwdCallback) _hofPwdCallback();
+}
+
+// 개별 기록 삭제
+function deleteHofEntry(key, path) {
+  openHofPwdModal(async () => {
+    try {
+      await db.ref(`${path}/${key}`).remove();
+      openHallOfFame();
+    } catch (e) {
+      console.error('[기록판] 삭제 실패:', e);
+    }
+  });
+}
+
+// 섹션 전체 삭제
+function deleteAllHofEntries(type) {
+  const path = type === 'individual' ? HOF_PATH_INDIVIDUAL : HOF_PATH_CLASS;
+  openHofPwdModal(async () => {
+    try {
+      await db.ref(path).remove();
+      openHallOfFame();
+    } catch (e) {
+      console.error('[기록판] 전체삭제 실패:', e);
+    }
+  });
+}
+
+// 반 합동기록 저장 닉네임 입력 모달 열기
+function openHofNicknameModal() {
+  document.getElementById('hofNicknameScore').textContent = `총합: ${_lastSumScore.toFixed(1)}m`;
+  document.getElementById('hofNicknameInput').value = '';
+  document.getElementById('hofNicknameMsg').textContent = '';
+  document.getElementById('hofNicknameOverlay').classList.remove('hidden');
+  document.getElementById('hofNicknameInput').focus();
+}
+
+// 반 합동기록 Firebase 저장
+async function saveHallOfFame() {
+  const nickname = document.getElementById('hofNicknameInput').value.trim();
+  const msgEl    = document.getElementById('hofNicknameMsg');
+  if (!nickname || nickname.length < 1 || nickname.length > 8 || nickname.includes(' ')) {
+    msgEl.textContent = '반/팀 이름은 1~8자, 공백 없이 입력하세요.';
+    return;
+  }
+  if (!db) { msgEl.textContent = 'Firebase 연결 필요'; return; }
+  try {
+    await db.ref(HOF_PATH_CLASS).push({
+      nickname,
+      score  : _lastSumScore,
+      savedAt: Date.now(),
+    });
+    document.getElementById('hofNicknameOverlay').classList.add('hidden');
+    console.log(`[기록판] 반 합동기록 저장 — ${nickname}: ${_lastSumScore}m`);
+  } catch (e) {
+    msgEl.textContent = '저장 실패: ' + e.message;
+  }
 }
 
 // 최종 순위 오버레이 표시
@@ -944,10 +1126,12 @@ async function showFinalRanking() {
   const sumStep = top15.reduce((acc, p) => acc + (p.step || 0), 0);
   const sumM    = (sumStep / CFG.STEPS_PER_M).toFixed(1);
   const count   = top15.length;
-  const sumEl   = document.getElementById('finalHeightSum');
-  if (sumEl) {
-    sumEl.textContent = `우리반 1~${count}등의 높이 총합 = ${sumM}m`;
-  }
+  _lastSumScore = parseFloat(sumM); // 기록 저장 버튼에서 참조
+  const sumEl = document.getElementById('finalHeightSum');
+  if (sumEl) sumEl.textContent = `우리반 1~${count}등의 높이 총합 = ${sumM}m`;
+  // RECORD 버튼은 선생님(호스트)에게만 표시
+  const btnRecord = document.getElementById('btnRecord');
+  if (btnRecord) btnRecord.style.display = state.online.isHost ? '' : 'none';
 
   document.getElementById('finalRankingOverlay')?.classList.remove('hidden');
 }
@@ -2744,6 +2928,23 @@ document.getElementById('xlsxInput').addEventListener('change', async (e) => {
 });
 
 document.getElementById('quizSubmit').addEventListener('click', submitQuizAnswer);
+
+// 명예의 전당 비밀번호 모달 버튼
+document.getElementById('hofPwdConfirm').addEventListener('click', confirmHofPwd);
+document.getElementById('hofPwdCancel').addEventListener('click', closeHofPwdModal);
+document.getElementById('hofPwdInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmHofPwd();
+  if (e.key === 'Escape') closeHofPwdModal();
+});
+
+// 명예의 전당 닉네임 모달 버튼
+document.getElementById('hofNicknameConfirm').addEventListener('click', saveHallOfFame);
+document.getElementById('hofNicknameCancel').addEventListener('click', () => {
+  document.getElementById('hofNicknameOverlay').classList.add('hidden');
+});
+document.getElementById('hofNicknameInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') saveHallOfFame();
+});
 
 // =============================================
 // 친구따라강남 오버레이 이벤트

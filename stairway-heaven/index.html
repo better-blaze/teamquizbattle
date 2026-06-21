@@ -49,6 +49,7 @@
 
       <div id="loginMsg" class="hidden"></div>
       <button id="btnOffline">오프라인으로 플레이</button>
+      <button id="btnHallOfFame" onclick="openHallOfFame()">🏆 명예의 전당</button>
     </div>
   </div>
 
@@ -98,10 +99,62 @@
       <!-- 4위 이하 목록 -->
       <ol id="finalRankingList" start="4"></ol>
 
-      <!-- 1~15등 높이 총합 -->
-      <div id="finalHeightSum"></div>
+      <!-- 1~15등 높이 총합 + 기록 저장 -->
+      <div id="finalSumRow">
+        <div id="finalHeightSum"></div>
+        <button id="btnRecord" onclick="openHofNicknameModal()">RECORD</button>
+      </div>
 
       <button onclick="document.getElementById('finalRankingOverlay').classList.add('hidden')">닫기</button>
+    </div>
+  </div>
+
+  <!-- 명예의 전당 조회 오버레이 -->
+  <div id="hallOfFameOverlay" class="hidden">
+    <div id="hallOfFamePanel">
+      <div id="hofTitle">🏆 명예의 전당</div>
+      <div class="hofSection">
+        <div class="hofSectionTitle">
+          👤 개인 기록
+          <button class="hofClearBtn" onclick="deleteAllHofEntries('individual')">전체삭제</button>
+        </div>
+        <div id="hofListIndividual"></div>
+      </div>
+      <div class="hofSection">
+        <div class="hofSectionTitle">
+          🏫 반 합동기록
+          <button class="hofClearBtn" onclick="deleteAllHofEntries('class')">전체삭제</button>
+        </div>
+        <div id="hofListClass"></div>
+      </div>
+      <button onclick="document.getElementById('hallOfFameOverlay').classList.add('hidden')">닫기</button>
+    </div>
+  </div>
+
+  <!-- 명예의 전당 비밀번호 확인 모달 -->
+  <div id="hofPwdOverlay" class="hidden">
+    <div id="hofPwdPanel">
+      <div id="hofPwdTitle">삭제 암호 입력</div>
+      <input type="password" id="hofPwdInput" placeholder="암호" maxlength="20" autocomplete="off" />
+      <div id="hofPwdMsg"></div>
+      <div id="hofPwdBtns">
+        <button id="hofPwdConfirm">확인</button>
+        <button id="hofPwdCancel">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 기록 저장 닉네임 입력 오버레이 -->
+  <div id="hofNicknameOverlay" class="hidden">
+    <div id="hofNicknamePanel">
+      <div id="hofNicknameTitle">🏅 기록을 남기겠습니까?</div>
+      <div id="hofNicknameScore"></div>
+      <input id="hofNicknameInput" type="text" placeholder="반/팀 이름 (1~8자)" maxlength="8" autocomplete="off" />
+      <div id="hofNicknameMsg"></div>
+      <div id="hofNicknameBtns">
+        <button id="hofNicknameConfirm">확인</button>
+        <button id="hofNicknameCancel">취소</button>
+      </div>
     </div>
   </div>
 

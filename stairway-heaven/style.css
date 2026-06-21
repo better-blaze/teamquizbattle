@@ -1074,17 +1074,304 @@ html, body {
   font-family: monospace;
 }
 
-#finalHeightSum {
+/* 총합 + RECORD 버튼 행 */
+#finalSumRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 12px 0 4px;
+}
+#finalHeightSum {
+  flex: 1;
   padding: 10px 16px;
   background: rgba(74, 158, 255, 0.12);
   border: 1px solid rgba(74, 158, 255, 0.30);
   border-radius: 10px;
   color: #a0cfff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: bold;
   text-align: center;
   letter-spacing: 0.3px;
+}
+#btnRecord {
+  flex-shrink: 0;
+  padding: 9px 14px;
+  background: rgba(255, 200, 80, 0.15);
+  color: #ffc850;
+  border: 1.5px solid rgba(255, 200, 80, 0.40);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#btnRecord:hover { background: rgba(255, 200, 80, 0.28); }
+
+/* 로그인 페이지 — 명예의 전당 버튼 */
+#btnHallOfFame {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  background: rgba(255, 200, 80, 0.10);
+  color: #ffc850;
+  border: 1.5px solid rgba(255, 200, 80, 0.35);
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#btnHallOfFame:hover { background: rgba(255, 200, 80, 0.22); }
+
+/* 명예의 전당 조회 오버레이 */
+#hallOfFameOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 600;
+}
+#hallOfFameOverlay.hidden { display: none; }
+#hallOfFamePanel {
+  background: #1a1f2e;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 18px;
+  padding: 28px 24px 20px;
+  width: min(360px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#hofTitle {
+  font-size: 20px;
+  font-weight: bold;
+  text-align: center;
+  color: #ffc850;
+  margin-bottom: 4px;
+}
+.hofSection { display: flex; flex-direction: column; gap: 6px; }
+.hofSectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: bold;
+  color: rgba(255,255,255,0.55);
+  padding: 4px 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  margin-bottom: 2px;
+}
+.hofClearBtn {
+  margin-left: auto;
+  padding: 2px 8px;
+  background: rgba(255, 80, 80, 0.12);
+  color: rgba(255, 100, 100, 0.70);
+  border: 1px solid rgba(255, 80, 80, 0.25);
+  border-radius: 5px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.hofClearBtn:hover { background: rgba(255, 80, 80, 0.25); }
+
+/* 비밀번호 확인 모달 */
+#hofPwdOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.70);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 800;
+}
+#hofPwdOverlay.hidden { display: none; }
+#hofPwdPanel {
+  background: #1a1f2e;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  padding: 24px 22px 18px;
+  width: min(280px, 86vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+}
+#hofPwdTitle {
+  font-size: 16px;
+  font-weight: bold;
+  color: rgba(255,255,255,0.80);
+}
+#hofPwdInput {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.20);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 18px;
+  text-align: center;
+  letter-spacing: 4px;
+  outline: none;
+  box-sizing: border-box;
+}
+#hofPwdInput:focus { border-color: #ff6464; }
+#hofPwdMsg {
+  font-size: 12px;
+  color: #ff6464;
+  min-height: 16px;
+}
+#hofPwdBtns {
+  display: flex;
+  gap: 8px;
+}
+#hofPwdBtns button {
+  flex: 1;
+  padding: 9px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  border: none;
+}
+#hofPwdConfirm { background: #ff6464; color: #fff; }
+#hofPwdConfirm:hover { background: #ff4444; }
+#hofPwdCancel { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6); }
+
+.hofLoading, .hofEmpty {
+  text-align: center;
+  color: rgba(255,255,255,0.45);
+  font-size: 14px;
+  padding: 16px 0;
+}
+.hofRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+}
+.hofRank {
+  width: 30px;
+  font-size: 12px;
+  color: #ffc850;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+.hofName {
+  flex: 1;
+  font-size: 15px;
+  color: #fff;
+  font-weight: bold;
+}
+.hofScore {
+  font-size: 14px;
+  color: #4a9eff;
+  font-family: monospace;
+  flex-shrink: 0;
+}
+.hofDate {
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  flex-shrink: 0;
+}
+.hofDelBtn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: rgba(255,100,100,0.55);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.1s;
+}
+.hofDelBtn:hover { color: #ff6464; }
+#hallOfFamePanel > button {
+  align-self: center;
+  padding: 8px 24px;
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.6);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* 기록 저장 닉네임 입력 오버레이 */
+#hofNicknameOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 700;
+}
+#hofNicknameOverlay.hidden { display: none; }
+#hofNicknamePanel {
+  background: #1a1f2e;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 18px;
+  padding: 28px 24px 20px;
+  width: min(320px, 88vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+}
+#hofNicknameTitle {
+  font-size: 18px;
+  font-weight: bold;
+  color: #ffc850;
+}
+#hofNicknameScore {
+  font-size: 14px;
+  color: #4a9eff;
+}
+#hofNicknameInput {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.20);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 16px;
+  text-align: center;
+  outline: none;
+  box-sizing: border-box;
+}
+#hofNicknameInput:focus { border-color: #ffc850; }
+#hofNicknameMsg {
+  font-size: 12px;
+  color: #ff6464;
+  min-height: 16px;
+}
+#hofNicknameBtns {
+  display: flex;
+  gap: 10px;
+}
+#hofNicknameBtns button {
+  flex: 1;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  border: none;
+}
+#hofNicknameConfirm {
+  background: #ffc850;
+  color: #1a1f2e;
+}
+#hofNicknameConfirm:hover { background: #ffd97a; }
+#hofNicknameCancel {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.6);
 }
 
 #finalRankingPanel > button {
