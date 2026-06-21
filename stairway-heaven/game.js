@@ -214,6 +214,8 @@ function initSettingsListener() {
         // 관리자 패널 채찍 설정 복원
         fill('settingWhipNStart', saved.whipNStart);
         fill('settingWhipNEnd',   saved.whipNEnd);
+        // 아이템 가중치 입력칸 복원
+        if (saved.itemWeights) fillWeightInputs(saved.itemWeights);
         // 가상 키보드 전파 (교사가 토글하면 모든 클라이언트에 반영)
         if (saved.virtualKeyboard != null) setVirtualKeyboardVisible(saved.virtualKeyboard);
         if (firstFire) console.log('[설정] 실시간 업데이트 적용');
@@ -259,6 +261,91 @@ async function saveSettings(overrides = {}) {
   } catch (e) {
     console.error('[설정] 저장 실패:', e.message);
   }
+}
+
+// 아이템 id → 입력칸 id 변환 (공백을 __ 로 치환)
+function weightInputId(itemId) { return 'wt_' + itemId.replace(/ /g, '__'); }
+
+// 등급(tierKey = '고급' | '일반') 내 각 아이템의 % 확률을 실시간 갱신
+function updateWeightPct(tierKey) {
+  const items = ITEM_POOL[tierKey];
+  const total = items.reduce((s, item) => {
+    return s + (parseFloat(document.getElementById(weightInputId(item.id))?.value) || 0);
+  }, 0);
+  items.forEach(item => {
+    const pctEl = document.getElementById('pct_' + weightInputId(item.id));
+    if (!pctEl) return;
+    const w = parseFloat(document.getElementById(weightInputId(item.id))?.value) || 0;
+    pctEl.textContent = total > 0 ? (w / total * 100).toFixed(1) + '%' : '--%';
+  });
+}
+
+// 관리자 패널 아이템 가중치 UI 동적 생성 (1열 레이아웃 + % 실시간 표시)
+function initAdminWeightUI() {
+  const container = document.getElementById('adminWeightContainer');
+  if (!container) return;
+  const tiers = [
+    { key: '고급', label: '고급 ★', items: ITEM_POOL.고급 },
+    { key: '일반', label: '일반',   items: ITEM_POOL.일반  },
+  ];
+  container.innerHTML = tiers.map(tier => `
+    <div class="adminWeightTier">
+      <div class="adminWeightTierLabel">${tier.label}</div>
+      ${tier.items.map(item => `
+        <div class="adminWeightRow">
+          <span class="adminWeightName">${item.id}</span>
+          <input type="number" id="${weightInputId(item.id)}"
+                 min="0" step="0.1" value="${item.weight}" class="adminWeightInput"
+                 oninput="updateWeightPct('${tier.key}')" />
+          <span id="pct_${weightInputId(item.id)}" class="adminWeightPct">--%</span>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+  // 생성 직후 초기 % 계산
+  tiers.forEach(tier => updateWeightPct(tier.key));
+}
+
+// 입력칸에 Firebase에서 받은 가중치 채우기 후 % 갱신
+function fillWeightInputs(weights) {
+  if (!weights) return;
+  [...ITEM_POOL.고급, ...ITEM_POOL.일반].forEach(item => {
+    const el = document.getElementById(weightInputId(item.id));
+    if (el && weights[item.id] != null) el.value = weights[item.id];
+  });
+  updateWeightPct('고급');
+  updateWeightPct('일반');
+}
+
+// 아이템 가중치 검증·적용·Firebase 저장
+async function adminSaveWeights() {
+  const msgEl  = document.getElementById('adminWeightMsg');
+  const showMsg = (txt, ok = false) => {
+    if (!msgEl) return;
+    msgEl.textContent = txt;
+    msgEl.style.color = ok ? '#2ed573' : '#ff6b81';
+  };
+
+  const weights = {};
+  for (const item of [...ITEM_POOL.고급, ...ITEM_POOL.일반]) {
+    const el  = document.getElementById(weightInputId(item.id));
+    const val = parseFloat(el?.value);
+    if (isNaN(val) || val < 0) { showMsg(`'${item.id}' 값은 0 이상이어야 합니다.`); return; }
+    weights[item.id] = val;
+  }
+  // 등급별 합계가 0이면 경고
+  const premSum = ITEM_POOL.고급.reduce((s, it) => s + (weights[it.id] || 0), 0);
+  const normSum = ITEM_POOL.일반.reduce((s, it) => s + (weights[it.id] || 0), 0);
+  if (premSum === 0) { showMsg('고급 아이템 가중치 합이 0입니다.'); return; }
+  if (normSum === 0) { showMsg('일반 아이템 가중치 합이 0입니다.'); return; }
+
+  // ITEM_POOL에 즉시 반영 (리스너가 다른 클라이언트에도 전파)
+  [...ITEM_POOL.고급, ...ITEM_POOL.일반].forEach(item => { item.weight = weights[item.id]; });
+
+  // Firebase에 itemWeights만 업데이트 (다른 설정 덮어쓰지 않음)
+  if (db) await db.ref(`${SETTINGS_PATH}/itemWeights`).set(weights);
+  showMsg('저장 완료!', true);
+  setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 2000);
 }
 
 // 관리자 패널에서 설정을 읽어 검증·적용·Firebase 저장
@@ -2721,7 +2808,8 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-// 설정 실시간 리스너 등록 후 게임 루프 시작 (실패 시 기본값으로 진행)
+// 관리자 패널 아이템 가중치 UI 생성 후 리스너 등록 → 게임 루프 시작
+initAdminWeightUI();
 initSettingsListener().finally(() => loop());
 
 // =============================================

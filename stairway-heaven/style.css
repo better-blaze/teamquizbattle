@@ -521,6 +521,8 @@ html, body {
   padding: 12px 14px;
   min-width: 200px;
   font-family: monospace;
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
 }
 
 .adminTitle {
@@ -556,29 +558,67 @@ html, body {
 .adminSettingRow {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 5px;
+  gap: 4px;
+  margin-bottom: 3px;
 }
 .adminSettingKey {
-  font-size: 11px;
-  color: rgba(255,255,255,0.65);
+  font-size: 9px;
+  color: rgba(255,255,255,0.60);
   white-space: nowrap;
-  min-width: 96px;
+  min-width: 76px;
 }
-.adminSettingRow input[type="number"] {
-  width: 70px;
-  padding: 3px 6px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.18);
-  border-radius: 6px;
-  color: #fff;
-  font-size: 12px;
+/* #adminPanel input 규칙(특이도 1-0-1)을 덮기 위해 특이도 1-1-1로 올림 */
+#adminPanel .adminSettingRow input[type="number"] {
+  width: 44px;
+  padding: 1px 3px;
+  font-size: 10px;
   text-align: center;
-  outline: none;
+  margin-bottom: 0;
 }
 .adminSettingUnit {
-  font-size: 11px;
-  color: rgba(255,255,255,0.38);
+  font-size: 9px;
+  color: rgba(255,255,255,0.35);
+}
+
+/* 아이템 가중치 — 1열, 이름·입력·% 세 칸 나란히 */
+.adminWeightTier { margin-bottom: 6px; }
+.adminWeightTierLabel {
+  font-size: 9px;
+  color: rgba(255,255,255,0.40);
+  margin-bottom: 2px;
+  letter-spacing: 0.2px;
+}
+.adminWeightRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.adminWeightName {
+  font-size: 9px;
+  color: rgba(255,255,255,0.80);
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 특이도 (2,1,1) — #adminPanel input[type="number"] (1,1,1)을 확실히 이김 */
+#adminPanel #adminWeightContainer input[type="number"] {
+  width: 32px;
+  padding: 1px 2px;
+  font-size: 9px;
+  text-align: center;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+.adminWeightPct {
+  font-size: 9px;
+  color: rgba(255,255,255,0.40);
+  white-space: nowrap;
+  width: 32px;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 #adminPanel button {
