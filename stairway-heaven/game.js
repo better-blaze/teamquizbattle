@@ -726,6 +726,7 @@ function adminAddDummies() {
     }
   }
   document.getElementById('adminDummyStatus').textContent = `${state.dummyPlayers.length}명`;
+  updateAdminPlayerList();
   console.log(`[관리자] 더미 ${n}명 추가 → 총 ${state.dummyPlayers.length}명`);
 }
 
@@ -739,6 +740,7 @@ function adminClearDummies() {
   }
   state.dummyPlayers = [];
   document.getElementById('adminDummyStatus').textContent = '0명';
+  updateAdminPlayerList();
   console.log('[관리자] 더미 플레이어 전체 삭제');
 }
 
@@ -755,6 +757,22 @@ function initAdminItemSelect() {
       sel.appendChild(opt);
     });
   });
+
+  // adminTargetItemSelect에만 관리자 전용 즉시 효과 항목 추가
+  const targetSel = document.getElementById('adminTargetItemSelect');
+  if (targetSel) {
+    const sep = document.createElement('option');
+    sep.disabled     = true;
+    sep.textContent  = '── 관리자 전용 ──';
+    targetSel.appendChild(sep);
+
+    ['거울 즉시', '암흑 즉시'].forEach(id => {
+      const opt       = document.createElement('option');
+      opt.value       = id;
+      opt.textContent = id;
+      targetSel.appendChild(opt);
+    });
+  }
 }
 
 // =============================================
@@ -1168,33 +1186,56 @@ function listenIncomingItems(pin, uid) {
   db.ref(`stairway/sessions/${pin}/incomingItems/${uid}`).on('child_added', snap => {
     const data = snap.val();
     if (!data || data.t < joinedAt) return; // 접속 전 데이터 무시
+    // 관리자 전용 즉시 저주 — 확인 창 없이 3초 카운트다운 후 효과 발동
+    const adminCurseMap = { '암흑 즉시': '암흑의 저주', '거울 즉시': '거울의 저주' };
+    if (adminCurseMap[data.itemId]) {
+      const curseType = adminCurseMap[data.itemId];
+      if (isCurseInProgress()) {
+        state.curse.queue.push(curseType);
+      } else {
+        state.curse.countdownActive   = true;
+        state.curse.countdownItem     = curseType;
+        state.curse.countdownUntil    = Date.now() + CFG.CURSE_COUNTDOWN_S * 1000;
+        state.curse.countdownIsCaster = false;
+      }
+      return;
+    }
     useItem(data.itemId);
   });
 }
 
-// 관리자 패널 플레이어 체크박스 목록 갱신 (listenPlayers 콜백에서 호출)
+// 마지막으로 렌더한 플레이어 ID 목록 — 구성이 바뀔 때만 재렌더해 체크박스 DOM 보호
+let _adminPlayerListKey = '';
+
+// 관리자 패널 플레이어 체크박스 목록 갱신 (listenPlayers 콜백 + 더미 추가/삭제 시 호출)
 function updateAdminPlayerList() {
   const listEl = document.getElementById('adminPlayerList');
   if (!listEl || !state.online.isHost) return;
 
-  // 기존 선택 상태 보존
-  const prevChecked = new Set(
-    [...listEl.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value)
-  );
-
-  const players = Object.entries(state.online.otherPlayers)
+  const realPlayers = Object.entries(state.online.otherPlayers)
     .filter(([uid]) => !uid.startsWith('dummy_'))
-    .map(([uid, op]) => ({ uid, name: op.name }));
+    .map(([uid, op]) => ({ uid, name: op.name, isDummy: false }));
 
-  if (!players.length) {
+  const dummyPlayers = state.dummyPlayers
+    .map(d => ({ uid: d.id, name: d.name, isDummy: true }));
+
+  const all = [...realPlayers, ...dummyPlayers];
+
+  // 플레이어 구성(uid 목록)이 변하지 않았으면 DOM 재생성 스킵
+  // → 위치 업데이트(400ms)마다 리스트가 재생성돼 체크박스 클릭이 씹히는 문제 방지
+  const newKey = all.map(p => p.uid).join(',');
+  if (newKey === _adminPlayerListKey) return;
+  _adminPlayerListKey = newKey;
+
+  if (!all.length) {
     listEl.innerHTML = '<div style="font-size:10px;color:rgba(255,255,255,0.35);padding:2px 0;">접속한 플레이어 없음</div>';
     return;
   }
 
-  listEl.innerHTML = players.map(p => `
+  listEl.innerHTML = all.map(p => `
     <label class="adminPlayerRow">
-      <input type="checkbox" class="adminPlayerCheck" value="${p.uid}" ${prevChecked.has(p.uid) ? 'checked' : ''} />
-      <span class="adminPlayerName">${p.name}</span>
+      <input type="checkbox" class="adminPlayerCheck" value="${p.uid}" />
+      <span class="adminPlayerName">${p.name}${p.isDummy ? ' <span style="opacity:.45;font-size:9px;">[더미]</span>' : ''}</span>
     </label>
   `).join('');
 }
@@ -1218,11 +1259,53 @@ async function adminSendItemToPlayers() {
   if (!db || !pin) { showMsg('방에 입장 후 사용하세요.'); return; }
 
   const t = Date.now();
-  await Promise.all(checked.map(uid =>
-    db.ref(`stairway/sessions/${pin}/incomingItems/${uid}`).push({ itemId, t })
-  ));
+  const realUids  = checked.filter(uid => !uid.startsWith('dummy_'));
+  const dummyUids = checked.filter(uid =>  uid.startsWith('dummy_'));
+
+  // 실제 플레이어 → Firebase
+  if (realUids.length) {
+    await Promise.all(realUids.map(uid =>
+      db.ref(`stairway/sessions/${pin}/incomingItems/${uid}`).push({ itemId, t })
+    ));
+  }
+  // 더미 플레이어 → 로컬 직접 적용
+  dummyUids.forEach(uid => applyItemToDummy(uid, itemId));
+
   showMsg(`${checked.length}명에게 [${itemId}] 발송!`, true);
   setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 2500);
+}
+
+// 더미 플레이어에게 아이템 직접 적용 — 위치 이동류만 처리, 나머지 무시
+function applyItemToDummy(dummyId, itemId) {
+  const dummy = state.dummyPlayers.find(d => d.id === dummyId);
+  if (!dummy) return;
+  const maxStep = state.steps.length - 1;
+
+  switch (itemId) {
+    case '사다리':
+      dummy.stepPos = Math.min(dummy.stepPos + 1 * CFG.STEPS_PER_M, maxStep);
+      break;
+    case '엘리베이터':
+      dummy.stepPos = Math.min(dummy.stepPos + 5 * CFG.STEPS_PER_M, maxStep);
+      break;
+    case '새치기': {
+      const myStep = Math.floor(dummy.stepPos);
+      const candidates = [
+        state.player.stepIndex,
+        ...Object.values(state.online.otherPlayers).map(op => op.step),
+        ...state.dummyPlayers.filter(d => d.id !== dummyId).map(d => Math.floor(d.stepPos)),
+      ].filter(s => s > myStep).sort((a, b) => a - b);
+      if (candidates.length) dummy.stepPos = Math.min(candidates[0] + 2, maxStep);
+      break;
+    }
+    case '자율주행':
+      // 10초간 3배속
+      dummy.stepsPerSec *= 3;
+      setTimeout(() => { if (state.dummyPlayers.includes(dummy)) dummy.stepsPerSec /= 3; }, CFG.AUTOPILOT_MS);
+      break;
+    default:
+      console.log(`[더미] '${itemId}' — 더미에게 적용 불가, 무시`);
+  }
 }
 
 // 관리자 패널 접기/펼치기 토글
