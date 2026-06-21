@@ -45,8 +45,33 @@
   <div id="finalRankingOverlay" class="hidden">
     <div id="finalRankingPanel">
       <div id="finalRankingTitle">🏁 게임 종료!</div>
-      <div id="finalRankingSubtitle">최종 순위</div>
-      <ol id="finalRankingList"></ol>
+
+      <!-- 시상대: 2등(좌) / 1등(중앙) / 3등(우) -->
+      <div id="finalPodium">
+        <div class="podium-slot" id="podium2">
+          <img class="podium-char" id="podiumImg2" src="" alt="" />
+          <div class="podium-name" id="podiumName2"></div>
+          <div class="podium-height" id="podiumHeight2"></div>
+          <div class="podium-block rank2">2위</div>
+        </div>
+        <div class="podium-slot" id="podium1">
+          <div class="podium-crown">👑</div>
+          <img class="podium-char" id="podiumImg1" src="" alt="" />
+          <div class="podium-name" id="podiumName1"></div>
+          <div class="podium-height" id="podiumHeight1"></div>
+          <div class="podium-block rank1">1위</div>
+        </div>
+        <div class="podium-slot" id="podium3">
+          <img class="podium-char" id="podiumImg3" src="" alt="" />
+          <div class="podium-name" id="podiumName3"></div>
+          <div class="podium-height" id="podiumHeight3"></div>
+          <div class="podium-block rank3">3위</div>
+        </div>
+      </div>
+
+      <!-- 4위 이하 목록 -->
+      <ol id="finalRankingList" start="4"></ol>
+
       <button onclick="document.getElementById('finalRankingOverlay').classList.add('hidden')">닫기</button>
     </div>
   </div>
@@ -105,6 +130,13 @@
       <label class="adminCheckLabel">
         <input type="checkbox" id="adminTestMode" onchange="adminToggleTestMode()" />
         테스트 모드 (채찍·퀴즈 비활성)
+      </label>
+    </div>
+
+    <div class="adminGroup">
+      <label class="adminCheckLabel">
+        <input type="checkbox" id="adminVirtualKeyboard" onchange="adminToggleVirtualKeyboard()" />
+        가상 키보드 표시
       </label>
     </div>
 
@@ -184,6 +216,26 @@
       <div id="quizAnswerArea"></div>
       <button id="quizSubmit">제출</button>
       <div id="quizFeedback"></div>
+    </div>
+  </div>
+
+  <!-- 모바일 가상 키보드 -->
+  <div id="virtualKeyboard">
+    <div class="vk-cluster vk-left">
+      <button class="vk-btn" data-code="2" aria-label="Q — 왼쪽 점프">
+        <span class="vk-arrow">↖</span><span class="vk-label">Q</span>
+      </button>
+      <button class="vk-btn" data-code="0" aria-label="A — 왼쪽 한 칸">
+        <span class="vk-arrow">←</span><span class="vk-label">A</span>
+      </button>
+    </div>
+    <div class="vk-cluster vk-right">
+      <button class="vk-btn" data-code="3" aria-label="E — 오른쪽 점프">
+        <span class="vk-arrow">↗</span><span class="vk-label">E</span>
+      </button>
+      <button class="vk-btn" data-code="1" aria-label="D — 오른쪽 한 칸">
+        <span class="vk-arrow">→</span><span class="vk-label">D</span>
+      </button>
     </div>
   </div>
 

@@ -772,82 +772,135 @@ html, body {
 #finalRankingOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.88);
+  background: rgba(0, 0, 0, 0.92);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 250;
+  overflow-y: auto;
 }
 
 #finalRankingPanel {
   background: #0e0e2e;
-  border: 2px solid rgba(74,158,255,0.35);
+  border: 2px solid rgba(74, 158, 255, 0.35);
   border-radius: 18px;
-  padding: 32px 40px;
-  width: min(400px, 92vw);
+  padding: 28px 32px 24px;
+  width: min(480px, 96vw);
   color: #fff;
   font-family: sans-serif;
   text-align: center;
+  margin: auto;
 }
 
 #finalRankingTitle {
   font-size: 26px;
   font-weight: bold;
   color: #ffd700;
-  margin-bottom: 4px;
-}
-
-#finalRankingSubtitle {
-  font-size: 13px;
-  color: rgba(255,255,255,0.42);
   margin-bottom: 20px;
 }
 
+/* ── 시상대 ── */
+#finalPodium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.podium-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.podium-crown {
+  font-size: 24px;
+  margin-bottom: 2px;
+}
+
+.podium-char {
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+#podiumImg1 { width: 90px;  height: 116px; }
+#podiumImg2 { width: 68px;  height:  88px; }
+#podiumImg3 { width: 54px;  height:  70px; }
+
+.podium-name {
+  font-size: 14px;
+  font-weight: bold;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.podium-height {
+  font-size: 11px;
+  color: #4a9eff;
+  font-family: monospace;
+  margin-bottom: 6px;
+}
+
+.podium-block {
+  width: 90px;
+  border-radius: 6px 6px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: bold;
+  color: #fff;
+}
+.rank1 { height: 80px; background: linear-gradient(180deg, #ffd700, #b8860b); }
+.rank2 { height: 60px; background: linear-gradient(180deg, #c0c0c0, #707070); }
+.rank3 { height: 44px; background: linear-gradient(180deg, #cd7f32, #7a4a1a); }
+
+/* ── 4위 이하 목록 ── */
 #finalRankingList {
   list-style: none;
   padding: 0;
   margin-bottom: 20px;
   text-align: left;
+  counter-reset: rank-counter 3;
 }
 
 #finalRankingList li {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 10px;
-  margin-bottom: 6px;
-  background: rgba(255,255,255,0.05);
+  padding: 8px 10px;
+  margin-bottom: 5px;
+  background: rgba(255, 255, 255, 0.05);
   border-radius: 8px;
-  font-size: 16px;
+  font-size: 15px;
 }
-
-#finalRankingList li:first-child { background: rgba(255,215,0,0.12); border: 1px solid rgba(255,215,0,0.25); }
-#finalRankingList li:nth-child(2) { background: rgba(192,192,192,0.10); }
-#finalRankingList li:nth-child(3) { background: rgba(205,127,50,0.10); }
 
 .rankPos {
   font-size: 12px;
-  color: rgba(255,255,255,0.45);
-  min-width: 26px;
+  color: rgba(255, 255, 255, 0.45);
+  min-width: 28px;
 }
 
 .rankH {
   margin-left: auto;
   color: #4a9eff;
-  font-size: 14px;
+  font-size: 13px;
   font-family: monospace;
 }
 
 #finalRankingPanel > button {
   padding: 10px 24px;
-  background: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.65);
-  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
   font-size: 14px;
   cursor: pointer;
 }
-#finalRankingPanel > button:hover { background: rgba(255,255,255,0.14); }
+#finalRankingPanel > button:hover { background: rgba(255, 255, 255, 0.14); }
 
 /* =============================================
    6단계 — 친구따라강남 플레이어 선택 버튼
@@ -889,4 +942,68 @@ html, body {
   font-weight: bold;
   text-align: center;
   min-height: 24px;
+}
+
+/* =============================================
+   모바일 가상 키보드
+   ============================================= */
+#virtualKeyboard {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 180px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 0 16px 20px;
+  pointer-events: none; /* 캔버스 터치 통과 — 버튼만 pointer-events: auto */
+  z-index: 50;
+  /* 게임 중이 아닐 때는 JS로 hidden 처리 */
+}
+
+.vk-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.vk-btn {
+  width: 80px;
+  height: 70px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.30);
+  border-radius: 14px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  transition: background 0.08s, transform 0.08s;
+}
+
+.vk-btn:active,
+.vk-btn.pressed {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(0.93);
+}
+
+.vk-arrow {
+  font-size: 22px;
+  line-height: 1;
+  color: #fff;
+}
+
+.vk-label {
+  font-size: 13px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.70);
+  letter-spacing: 0.5px;
 }

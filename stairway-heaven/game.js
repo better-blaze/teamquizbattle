@@ -262,8 +262,13 @@ function cutInLine() {
   if (player.phase !== 'normal') return;
 
   // 나보다 위에 있는 플레이어 중 가장 가까운 한 명(바로 앞 등수) 선택
-  const justAbove = Object.values(online.otherPlayers)
-    .filter(op => op.step > player.stepIndex)
+  // 온라인 플레이어 + 더미 플레이어 모두 후보에 포함
+  const candidates = [
+    ...Object.values(online.otherPlayers).map(op => ({ name: op.name, step: op.step })),
+    ...state.dummyPlayers.map(d => ({ name: d.name, step: Math.floor(d.stepPos) })),
+  ];
+  const justAbove = candidates
+    .filter(c => c.step > player.stepIndex)
     .sort((a, b) => a.step - b.step)[0];
 
   if (!justAbove) {
@@ -494,6 +499,22 @@ function showLoginOverlay() {
 }
 function hideLoginOverlay() {
   document.getElementById('loginOverlay')?.classList.add('hidden');
+  // 가상 키보드는 관리자 패널 체크박스 상태에 따라 표시 여부 결정
+  const vkCheck = document.getElementById('adminVirtualKeyboard');
+  if (vkCheck?.checked) {
+    document.getElementById('virtualKeyboard')?.classList.remove('hidden');
+  }
+}
+
+function adminToggleVirtualKeyboard() {
+  const checked = document.getElementById('adminVirtualKeyboard').checked;
+  const vk      = document.getElementById('virtualKeyboard');
+  // 게임 중일 때만 실제로 표시 (로그인/종료 화면에서는 숨김 유지)
+  if (checked && state.gamePhase === 'playing') {
+    vk.classList.remove('hidden');
+  } else {
+    vk.classList.add('hidden');
+  }
 }
 
 // 로그인 오버레이 메시지 표시
@@ -711,7 +732,9 @@ function listenGameState(pin) {
   db.ref(`stairway/sessions/${pin}/gameActive`).on('value', snap => {
     if (snap.val() === false && state.gamePhase === 'playing') {
       state.gamePhase = 'ended';
-      showFinalRanking();
+      document.getElementById('virtualKeyboard')?.classList.add('hidden');
+      // rankings 노드가 Firebase에 전파될 시간을 1초 확보 후 순위 표시
+      setTimeout(() => showFinalRanking(), 1000);
     }
   });
 }
@@ -772,32 +795,79 @@ function writePlayerData() {
 }
 
 // 호스트: 게임 종료 (모든 플레이어에게 최종 순위 표시)
-function adminEndGame() {
+async function adminEndGame() {
   if (!state.online.isHost || !db) return;
   if (!confirm('게임을 종료하시겠습니까? 모든 플레이어에게 최종 순위가 표시됩니다.')) return;
   const base = `stairway/sessions/${state.online.pin}`;
+
+  // 현재 플레이어 목록을 읽어 최종 순위 노드에 기록 (클라이언트가 일관된 순위 데이터 사용)
+  const snap = await db.ref(`${base}/players`).get();
+  const playersData = snap.val() || {};
+  const rankings = Object.values(playersData)
+    .map(pd => ({ name: pd.name, step: pd.step || 0, charIndex: pd.charIndex ?? 0 }))
+    .sort((a, b) => b.step - a.step);
+  await db.ref(`${base}/rankings`).set(rankings);
+
+  // 게임 종료 신호 (모든 클라이언트가 종료 감지)
   db.ref(`${base}/gameActive`).set(false);
-  // 저주·자비 이벤트 기록 삭제 — 다음 게임에 이전 이벤트가 재발동되지 않도록
-  db.ref(`${base}/curses`).remove();
-  db.ref(`${base}/mercy`).remove();
+
+  // 5초 후 세션 전체 삭제 — 클라이언트가 순위를 읽을 시간 확보 후 정리
+  setTimeout(() => {
+    db.ref(base).remove();
+    console.log('[관리자] 세션 데이터 삭제 완료');
+  }, 5000);
 }
 
 // 최종 순위 오버레이 표시
-function showFinalRanking() {
-  const onlinePlayers = Object.values(state.online.otherPlayers);
-  const myName = state.online.enabled ? state.online.playerName : '나';
-  const all = [
-    { name: myName, step: state.player.stepIndex },
-    ...onlinePlayers.map(op => ({ name: op.name, step: op.step })),
-  ].sort((a, b) => b.step - a.step);
+async function showFinalRanking() {
+  let all = [];
 
+  if (db && state.online.enabled) {
+    // Firebase rankings 노드에서 호스트가 기록한 최종 순위 읽기
+    const snap = await db.ref(`stairway/sessions/${state.online.pin}/rankings`).get();
+    all = snap.val() || [];
+  }
+
+  // 오프라인이거나 rankings 노드가 없으면 로컬 상태로 fallback
+  if (all.length === 0) {
+    const myName = state.online.playerName || '나';
+    all = [
+      { name: myName, step: state.player.stepIndex, charIndex: state.player.charIndex },
+      ...Object.values(state.online.otherPlayers).map(op => ({
+        name: op.name, step: op.step, charIndex: op.charIndex ?? 0,
+      })),
+    ].sort((a, b) => b.step - a.step);
+  }
+
+  // ── 시상대 (1~3위) ──
+  const podiumOrder = [2, 1, 3]; // HTML 배치 순서: 2위 좌, 1위 중앙, 3위 우
+  podiumOrder.forEach(rank => {
+    const p      = all[rank - 1];
+    const imgEl  = document.getElementById(`podiumImg${rank}`);
+    const nameEl = document.getElementById(`podiumName${rank}`);
+    const htEl   = document.getElementById(`podiumHeight${rank}`);
+    const slotEl = document.getElementById(`podium${rank}`);
+    if (!slotEl) return;
+    if (p) {
+      imgEl.src       = `images/char_${100 + (p.charIndex ?? 0)}.png`;
+      imgEl.alt       = p.name;
+      nameEl.textContent = p.name;
+      htEl.textContent   = `${(p.step / CFG.STEPS_PER_M).toFixed(1)}m`;
+      slotEl.style.display = '';
+    } else {
+      slotEl.style.display = 'none'; // 해당 순위 플레이어 없으면 숨김
+    }
+  });
+
+  // ── 4위 이하 목록 ──
   const list = document.getElementById('finalRankingList');
   if (list) {
-    list.innerHTML = all.map((p, i) => {
+    list.innerHTML = all.slice(3).map((p, i) => {
       const h = (p.step / CFG.STEPS_PER_M).toFixed(1);
-      return `<li><span class="rankPos">${i + 1}위</span><strong>${p.name}</strong><span class="rankH">${h}m</span></li>`;
+      return `<li><span class="rankPos">${i + 4}위</span><strong>${p.name}</strong><span class="rankH">${h}m</span></li>`;
     }).join('');
   }
+
   document.getElementById('finalRankingOverlay')?.classList.remove('hidden');
 }
 
@@ -1318,6 +1388,31 @@ window.addEventListener('keydown', (e) => {
   if (state.player.phase === 'gameover') { handleInput(-1); return; }
   if (e.key in KEY_MAP) { e.preventDefault(); handleInput(KEY_MAP[e.key]); }
 });
+
+// 모바일 가상 키보드 — touchstart/mousedown 모두 처리
+(function initVirtualKeyboard() {
+  const vk = document.getElementById('virtualKeyboard');
+  vk.classList.add('hidden'); // 로그인 화면에서는 숨김
+
+  vk.querySelectorAll('.vk-btn').forEach(btn => {
+    const code = parseInt(btn.dataset.code, 10);
+
+    function onPress(e) {
+      e.preventDefault();
+      if (state.gamePhase !== 'playing') return;
+      btn.classList.add('pressed');
+      if (state.player.phase === 'gameover') { handleInput(-1); return; }
+      handleInput(code);
+    }
+    function onRelease() { btn.classList.remove('pressed'); }
+
+    btn.addEventListener('touchstart',  onPress,   { passive: false });
+    btn.addEventListener('touchend',    onRelease, { passive: true  });
+    btn.addEventListener('touchcancel', onRelease, { passive: true  });
+    btn.addEventListener('mousedown',   onPress);
+    btn.addEventListener('mouseup',     onRelease);
+  });
+})();
 
 // =============================================
 // 캔버스
