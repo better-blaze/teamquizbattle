@@ -104,6 +104,150 @@ const ITEM_POOL = {
   ],
 };
 
+// =============================================
+// 게임 설정 — Firebase stairway/settings 경로와 동기화
+// =============================================
+const SETTINGS_PATH = 'stairway/settings';
+
+// 기본값 (Firebase에 설정이 없을 때 사용)
+const GAME_SETTINGS_DEFAULT = {
+  // 채찍 게이지
+  whipNStart        : 2000,   // 게이지 1 증가까지 허용 무입력 시간 (ms, 0m 기준)
+  whipNEnd          : 200,    // 허용 시간 최솟값 (ms)
+  whipHeightMax     : 500,    // n이 최솟값에 도달하는 높이 (m)
+  whipMax           : 10,     // 게이지 최댓값
+  // 퀴즈
+  quizIntervalMs    : 30000,  // 출제 간격 (ms)
+  quizBatchSize     : 3,      // 한 번에 출제하는 문제 수
+  quizFreezeMs      : 3000,   // 0개 정답 시 정지 시간 (ms)
+  // 아이템 지속 시간 / 효과 배율
+  itemDurationMs    : 30000,
+  carrotMs          : 20000,
+  carrotMultiplier  : 1.5,
+  fireworkMs        : 20000,
+  sedativeMultiplier: 2.5,
+  autopilotMs       : 10000,
+  // 저주 계열
+  curseConfirmMs    : 5000,
+  curseMirrorMs     : 3000,
+  curseDarkMs       : 6000,
+  curseDarkPeriod   : 300,
+  curseLightPeriod  : 400,
+  // 아이템 가중치 (item.id를 키로, 값이 높을수록 자주 등장)
+  itemWeights: {
+    // 고급
+    '낙하산'      : 1,
+    '낙하산2개'   : 1,
+    '낙하산3개'   : 1,
+    '진정제'      : 1,
+    '엘리베이터'  : 1,
+    '친구따라강남': 1,
+    '자율주행'    : 1,
+    // 일반
+    '사다리'      : 1,
+    '당근'        : 1,
+    '숨고르기'    : 1,
+    '새치기'      : 1,
+    '꽝'          : 2,
+    '폭죽'        : 1,
+    '거울의 저주' : 0.5,
+    '암흑의 저주' : 0.5,
+  },
+};
+
+// GAME_SETTINGS_DEFAULT 키 → CFG 키 매핑표
+const SETTINGS_CFG_MAP = {
+  whipNStart        : 'WHIP_N_START',
+  whipNEnd          : 'WHIP_N_END',
+  whipHeightMax     : 'WHIP_HEIGHT_MAX',
+  whipMax           : 'WHIP_MAX',
+  quizIntervalMs    : 'QUIZ_INTERVAL_MS',
+  quizBatchSize     : 'QUIZ_BATCH_SIZE',
+  quizFreezeMs      : 'QUIZ_FREEZE_MS',
+  itemDurationMs    : 'ITEM_DURATION_MS',
+  carrotMs          : 'CARROT_MS',
+  carrotMultiplier  : 'CARROT_MULTIPLIER',
+  fireworkMs        : 'FIREWORK_MS',
+  sedativeMultiplier: 'SEDATIVE_MULTIPLIER',
+  autopilotMs       : 'AUTOPILOT_MS',
+  curseConfirmMs    : 'CURSE_CONFIRM_MS',
+  curseMirrorMs     : 'CURSE_MIRROR_MS',
+  curseDarkMs       : 'CURSE_DARK_MS',
+  curseDarkPeriod   : 'CURSE_DARK_PERIOD',
+  curseLightPeriod  : 'CURSE_LIGHT_PERIOD',
+};
+
+// 로드한 설정값을 CFG와 ITEM_POOL에 반영
+function applySettings(s) {
+  if (!s) return;
+  Object.entries(SETTINGS_CFG_MAP).forEach(([key, cfgKey]) => {
+    if (s[key] != null) CFG[cfgKey] = s[key];
+  });
+  if (s.itemWeights) {
+    [...ITEM_POOL.고급, ...ITEM_POOL.일반].forEach(item => {
+      if (s.itemWeights[item.id] != null) item.weight = s.itemWeights[item.id];
+    });
+  }
+  console.log('[설정] 적용 완료:', s);
+}
+
+// Firebase에서 설정 로드 — 없으면 기본값 유지
+async function loadSettings() {
+  if (!db) return;
+  try {
+    const snap = await db.ref(SETTINGS_PATH).get();
+    if (!snap.exists()) {
+      console.log('[설정] 저장된 설정 없음 — 기본값 사용');
+      return;
+    }
+    const saved = snap.val();
+    applySettings(saved);
+    // 목표 높이 — 로그인 패널 입력칸에 이전 값 복원
+    if (saved.targetHeight != null) {
+      const el = document.getElementById('hostTargetHeight');
+      if (el) el.value = saved.targetHeight;
+    }
+    console.log('[설정] Firebase에서 로드 완료');
+  } catch (e) {
+    console.error('[설정] 로드 실패 — 기본값 사용:', e.message);
+  }
+}
+
+// 현재 CFG·ITEM_POOL 값을 Firebase에 저장
+async function saveSettings(overrides = {}) {
+  if (!db) { console.warn('[설정] Firebase 없음 — 저장 불가'); return; }
+  const weights = {};
+  [...ITEM_POOL.고급, ...ITEM_POOL.일반].forEach(item => { weights[item.id] = item.weight; });
+  const current = {
+    whipNStart        : CFG.WHIP_N_START,
+    whipNEnd          : CFG.WHIP_N_END,
+    whipHeightMax     : CFG.WHIP_HEIGHT_MAX,
+    whipMax           : CFG.WHIP_MAX,
+    quizIntervalMs    : CFG.QUIZ_INTERVAL_MS,
+    quizBatchSize     : CFG.QUIZ_BATCH_SIZE,
+    quizFreezeMs      : CFG.QUIZ_FREEZE_MS,
+    itemDurationMs    : CFG.ITEM_DURATION_MS,
+    carrotMs          : CFG.CARROT_MS,
+    carrotMultiplier  : CFG.CARROT_MULTIPLIER,
+    fireworkMs        : CFG.FIREWORK_MS,
+    sedativeMultiplier: CFG.SEDATIVE_MULTIPLIER,
+    autopilotMs       : CFG.AUTOPILOT_MS,
+    curseConfirmMs    : CFG.CURSE_CONFIRM_MS,
+    curseMirrorMs     : CFG.CURSE_MIRROR_MS,
+    curseDarkMs       : CFG.CURSE_DARK_MS,
+    curseDarkPeriod   : CFG.CURSE_DARK_PERIOD,
+    curseLightPeriod  : CFG.CURSE_LIGHT_PERIOD,
+    itemWeights       : weights,
+    ...overrides,
+  };
+  try {
+    await db.ref(SETTINGS_PATH).set(current);
+    console.log('[설정] Firebase에 저장 완료:', current);
+  } catch (e) {
+    console.error('[설정] 저장 실패:', e.message);
+  }
+}
+
 // 충전식 아이템 — id별 사용 횟수와 유효시간 (이 목록에 없으면 시간제 아이템)
 const ITEM_CHARGES = {
   '낙하산'   : { charges: 1, durationMs: 30000 },
@@ -562,12 +706,34 @@ async function createSession(name, pin) {
   if (!validateLoginInputs(name, pin, true)) return;
   showLoginMsg('방 만드는 중...');
   try {
-    const startHeight = parseFloat(document.getElementById('hostStartHeight').value) || 0;
+    const startHeight  = parseFloat(document.getElementById('hostStartHeight').value) || 0;
+    const targetHeight = parseFloat(document.getElementById('hostTargetHeight').value) || 0;
+
+    // 목표 높이 검증
+    if (targetHeight <= 0) {
+      showLoginMsg('목표 높이는 1m 이상으로 입력하세요.');
+      return;
+    }
+    if (targetHeight <= startHeight) {
+      showLoginMsg('목표 높이는 시작 높이보다 높아야 합니다.');
+      return;
+    }
+
+    // 목표 높이 → MAP_LEN 적용 후 맵 재생성
+    CFG.MAP_LEN  = Math.round(targetHeight * CFG.STEPS_PER_M);
+    state.map    = generateMap(CFG.SEED, CFG.MAP_LEN);
+    state.steps  = buildSteps(state.map);
+    console.log(`[맵] 목표 높이 ${targetHeight}m → 계단 ${CFG.MAP_LEN}개 생성`);
+
+    // 목표 높이를 settings에 저장 (다음 방 만들기 때 자동 로드)
+    if (db) db.ref(`${SETTINGS_PATH}/targetHeight`).set(targetHeight);
+
     await db.ref(`stairway/sessions/${pin}`).set({
       createdAt  : Date.now(),
       gameActive : true,
       hostName   : name,
       startHeight: startHeight,
+      targetHeight: targetHeight,
     });
     // 선생님이 업로드한 문제를 Firebase에 저장 (학생들이 입장 시 읽어감)
     if (_pendingQuestions && _pendingQuestions.length > 0) {
@@ -2501,7 +2667,8 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-loop();
+// 설정 로드 후 게임 루프 시작 (로드 실패 시 기본값으로 진행)
+loadSettings().finally(() => loop());
 
 // =============================================
 // 퀴즈 — 엑셀 파싱 (quiz-battle-royale data.js 동일 로직)
