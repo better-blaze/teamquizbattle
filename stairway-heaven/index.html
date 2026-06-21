@@ -259,6 +259,11 @@
         <input type="number" id="settingWhipNEnd" min="50" max="5000" step="50" value="200" />
         <span class="adminSettingUnit">ms</span>
       </div>
+      <div class="adminSettingRow">
+        <span class="adminSettingKey">퀴즈 출제 간격</span>
+        <input type="number" id="settingQuizInterval" min="5000" max="300000" step="1000" value="30000" />
+        <span class="adminSettingUnit">ms</span>
+      </div>
       <div id="adminSettingMsg" style="font-size:12px;min-height:16px;margin:4px 0;"></div>
       <button onclick="adminSaveSettings()">저장</button>
     </div>

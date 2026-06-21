@@ -212,8 +212,9 @@ function initSettingsListener() {
           if (el) el.value = saved.targetHeight;
         }
         // 관리자 패널 채찍 설정 복원
-        fill('settingWhipNStart', saved.whipNStart);
-        fill('settingWhipNEnd',   saved.whipNEnd);
+        fill('settingWhipNStart',   saved.whipNStart);
+        fill('settingWhipNEnd',     saved.whipNEnd);
+        fill('settingQuizInterval', saved.quizIntervalMs);
         // 아이템 가중치 입력칸 복원
         if (saved.itemWeights) fillWeightInputs(saved.itemWeights);
         // 가상 키보드 전파 (교사가 토글하면 모든 클라이언트에 반영)
@@ -357,17 +358,20 @@ async function adminSaveSettings() {
     msgEl.style.color = ok ? '#2ed573' : '#ff6b81';
   };
 
-  const whipNStart = parseFloat(document.getElementById('settingWhipNStart')?.value);
-  const whipNEnd   = parseFloat(document.getElementById('settingWhipNEnd')?.value);
+  const whipNStart    = parseFloat(document.getElementById('settingWhipNStart')?.value);
+  const whipNEnd      = parseFloat(document.getElementById('settingWhipNEnd')?.value);
+  const quizIntervalMs = parseFloat(document.getElementById('settingQuizInterval')?.value);
 
   // 검증
-  if (!whipNStart || whipNStart <= 0) { showMsg('0m 값은 양수를 입력하세요.'); return; }
-  if (!whipNEnd   || whipNEnd   <= 0) { showMsg('500m 값은 양수를 입력하세요.'); return; }
-  if (whipNEnd >= whipNStart)         { showMsg('500m 값은 0m 값보다 작아야 합니다.'); return; }
+  if (!whipNStart || whipNStart <= 0)   { showMsg('0m 값은 양수를 입력하세요.'); return; }
+  if (!whipNEnd   || whipNEnd   <= 0)   { showMsg('500m 값은 양수를 입력하세요.'); return; }
+  if (whipNEnd >= whipNStart)           { showMsg('500m 값은 0m 값보다 작아야 합니다.'); return; }
+  if (!quizIntervalMs || quizIntervalMs < 5000) { showMsg('퀴즈 간격은 5000ms 이상이어야 합니다.'); return; }
 
   // CFG에 즉시 반영 (실시간 리스너가 다른 클라이언트에도 전파)
-  CFG.WHIP_N_START = whipNStart;
-  CFG.WHIP_N_END   = whipNEnd;
+  CFG.WHIP_N_START     = whipNStart;
+  CFG.WHIP_N_END       = whipNEnd;
+  CFG.QUIZ_INTERVAL_MS = quizIntervalMs;
 
   // Firebase에 저장 (현재 CFG 전체 스냅샷)
   await saveSettings();
