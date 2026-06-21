@@ -67,7 +67,25 @@
 
       <div id="loginMsg" class="hidden"></div>
       <button id="btnOffline">오프라인으로 플레이</button>
-      <button id="btnHallOfFame" onclick="openHallOfFame()">🏆 명예의 전당</button>
+      <div class="loginBottomRow">
+        <button id="btnHallOfFame" onclick="openHallOfFame()">🏆 명예의 전당</button>
+        <button id="btnTutorial" onclick="openTutorial()">📖 게임 방법</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 튜토리얼 오버레이 -->
+  <div id="tutorialOverlay" class="hidden">
+    <div id="tutorialPanel">
+      <button id="btnTutClose" onclick="closeTutorial()">✕</button>
+      <div id="tutorialSlideWrap">
+        <div id="tutorialSlide"></div>
+      </div>
+      <div id="tutorialNav">
+        <button id="btnTutPrev" onclick="tutorialNav(-1)">◀</button>
+        <div id="tutorialDots"></div>
+        <button id="btnTutNext" onclick="tutorialNav(1)">▶</button>
+      </div>
     </div>
   </div>
 
@@ -255,7 +273,13 @@
         <span class="adminSettingUnit">ms</span>
       </div>
       <div class="adminSettingRow">
-        <span class="adminSettingKey">채찍 n값 (500m)</span>
+        <span class="adminSettingKey">채찍 최솟값 도달 높이</span>
+        <input type="number" id="settingWhipHeightMax" min="10" max="10000" step="10" value="500"
+               oninput="const l=document.getElementById('settingWhipHeightMaxLabel');if(l)l.textContent=this.value" />
+        <span class="adminSettingUnit">m</span>
+      </div>
+      <div class="adminSettingRow">
+        <span class="adminSettingKey">채찍 n값 (<span id="settingWhipHeightMaxLabel">500</span>m)</span>
         <input type="number" id="settingWhipNEnd" min="50" max="5000" step="50" value="200" />
         <span class="adminSettingUnit">ms</span>
       </div>

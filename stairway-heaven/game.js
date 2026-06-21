@@ -212,9 +212,13 @@ function initSettingsListener() {
           if (el) el.value = saved.targetHeight;
         }
         // 관리자 패널 채찍 설정 복원
-        fill('settingWhipNStart',   saved.whipNStart);
-        fill('settingWhipNEnd',     saved.whipNEnd);
-        fill('settingQuizInterval', saved.quizIntervalMs);
+        fill('settingWhipNStart',    saved.whipNStart);
+        fill('settingWhipHeightMax', saved.whipHeightMax);
+        fill('settingWhipNEnd',      saved.whipNEnd);
+        fill('settingQuizInterval',  saved.quizIntervalMs);
+        // 레이블 동기화
+        const lbl = document.getElementById('settingWhipHeightMaxLabel');
+        if (lbl && saved.whipHeightMax != null) lbl.textContent = saved.whipHeightMax;
         // 아이템 가중치 입력칸 복원
         if (saved.itemWeights) fillWeightInputs(saved.itemWeights);
         // 가상 키보드 전파 (교사가 토글하면 모든 클라이언트에 반영)
@@ -358,18 +362,21 @@ async function adminSaveSettings() {
     msgEl.style.color = ok ? '#2ed573' : '#ff6b81';
   };
 
-  const whipNStart    = parseFloat(document.getElementById('settingWhipNStart')?.value);
-  const whipNEnd      = parseFloat(document.getElementById('settingWhipNEnd')?.value);
+  const whipNStart     = parseFloat(document.getElementById('settingWhipNStart')?.value);
+  const whipHeightMax  = parseFloat(document.getElementById('settingWhipHeightMax')?.value);
+  const whipNEnd       = parseFloat(document.getElementById('settingWhipNEnd')?.value);
   const quizIntervalMs = parseFloat(document.getElementById('settingQuizInterval')?.value);
 
   // 검증
-  if (!whipNStart || whipNStart <= 0)   { showMsg('0m 값은 양수를 입력하세요.'); return; }
-  if (!whipNEnd   || whipNEnd   <= 0)   { showMsg('500m 값은 양수를 입력하세요.'); return; }
-  if (whipNEnd >= whipNStart)           { showMsg('500m 값은 0m 값보다 작아야 합니다.'); return; }
+  if (!whipNStart    || whipNStart    <= 0)  { showMsg('0m 값은 양수를 입력하세요.'); return; }
+  if (!whipHeightMax || whipHeightMax <= 0)  { showMsg('최솟값 도달 높이는 양수를 입력하세요.'); return; }
+  if (!whipNEnd      || whipNEnd      <= 0)  { showMsg('최솟값 n은 양수를 입력하세요.'); return; }
+  if (whipNEnd >= whipNStart)                { showMsg('최솟값 n은 0m 값보다 작아야 합니다.'); return; }
   if (!quizIntervalMs || quizIntervalMs < 5000) { showMsg('퀴즈 간격은 5000ms 이상이어야 합니다.'); return; }
 
   // CFG에 즉시 반영 (실시간 리스너가 다른 클라이언트에도 전파)
   CFG.WHIP_N_START     = whipNStart;
+  CFG.WHIP_HEIGHT_MAX  = whipHeightMax;
   CFG.WHIP_N_END       = whipNEnd;
   CFG.QUIZ_INTERVAL_MS = quizIntervalMs;
 
