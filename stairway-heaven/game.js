@@ -3135,6 +3135,10 @@ function showQuestion(q) {
   submitBtn.disabled = false;
   submitBtn.textContent = '제출';
 
+  // 보기 섞기 — displayOrder[화면순서] = 원본인덱스
+  // submitQuizAnswer는 원본인덱스 기준으로 채점하므로 매핑만 거치면 됨
+  const makeShuffledOrder = (len) => shuffleArray([...Array(len).keys()]);
+
   if (q.type === '단답형') {
     const input = document.createElement('input');
     input.type        = 'text';
@@ -3144,14 +3148,15 @@ function showQuestion(q) {
     setTimeout(() => input.focus(), 50);
 
   } else if (q.type === '객관식') {
-    q.choices.forEach((c, i) => {
+    const order = makeShuffledOrder(q.choices.length);
+    order.forEach((origIdx, displayNum) => {
       const btn = document.createElement('button');
       btn.className   = 'choiceBtn';
-      btn.textContent = `${i + 1}. ${c}`;
+      btn.textContent = `${displayNum + 1}. ${q.choices[origIdx]}`;
       btn.onclick = () => {
         area.querySelectorAll('.choiceBtn').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
-        quizUI.selected = i;
+        quizUI.selected = origIdx; // 원본 인덱스 저장
       };
       area.appendChild(btn);
     });
@@ -3161,14 +3166,15 @@ function showQuestion(q) {
     hint.className   = 'quizHint';
     hint.textContent = '정답을 모두 선택하세요';
     area.appendChild(hint);
-    q.choices.forEach((c, i) => {
+    const order = makeShuffledOrder(q.choices.length);
+    order.forEach((origIdx, displayNum) => {
       const btn = document.createElement('button');
       btn.className   = 'choiceBtn';
-      btn.textContent = `${i + 1}. ${c}`;
+      btn.textContent = `${displayNum + 1}. ${q.choices[origIdx]}`;
       btn.onclick = () => {
         btn.classList.toggle('selected');
-        if (quizUI.multiSelected.has(i)) quizUI.multiSelected.delete(i);
-        else quizUI.multiSelected.add(i);
+        if (quizUI.multiSelected.has(origIdx)) quizUI.multiSelected.delete(origIdx);
+        else quizUI.multiSelected.add(origIdx); // 원본 인덱스 저장
       };
       area.appendChild(btn);
     });
@@ -3178,24 +3184,36 @@ function showQuestion(q) {
     hint.className   = 'quizHint';
     hint.textContent = '올바른 순서대로 클릭하세요';
     area.appendChild(hint);
-    q.choices.forEach((c, i) => {
+    const order = makeShuffledOrder(q.choices.length);
+    order.forEach((origIdx) => {
+      const c   = q.choices[origIdx];
       const btn = document.createElement('button');
       btn.className       = 'choiceBtn';
       btn.textContent     = c;
-      btn.dataset.origIdx = i;
+      btn.dataset.origIdx = origIdx;
       btn.onclick = () => {
-        if (quizUI.orderSelected.includes(i)) return;
-        quizUI.orderSelected.push(i);
-        btn.classList.add('ordered');
-        btn.textContent = `${quizUI.orderSelected.length}. ${c}`;
-        // 모두 선택되면 자동 제출
-        if (quizUI.orderSelected.length === q.choices.length) submitQuizAnswer();
+        const pos = quizUI.orderSelected.indexOf(origIdx);
+        if (pos !== -1) {
+          // 이미 선택된 항목 → 선택 취소 후 번호 재정렬
+          quizUI.orderSelected.splice(pos, 1);
+          btn.classList.remove('ordered');
+          btn.textContent = c;
+          quizUI.orderSelected.forEach((oIdx, rank) => {
+            const other = area.querySelector(`[data-orig-idx="${oIdx}"]`);
+            if (other) other.textContent = `${rank + 1}. ${q.choices[oIdx]}`;
+          });
+        } else {
+          quizUI.orderSelected.push(origIdx); // 원본 인덱스 저장
+          btn.classList.add('ordered');
+          btn.textContent = `${quizUI.orderSelected.length}. ${c}`;
+          if (quizUI.orderSelected.length === q.choices.length) submitQuizAnswer();
+        }
       };
       area.appendChild(btn);
     });
 
   } else if (q.type === '선잇기') {
-    const rights = q.matchPairs.map(p => p.right);
+    const rights = shuffleArray(q.matchPairs.map(p => p.right));
     q.matchPairs.forEach(pair => {
       const row = document.createElement('div');
       row.className = 'matchRow';
