@@ -1033,12 +1033,14 @@ async function doJoin(name, pin, isHost, preferredCharIndex = null) {
     }
     state.player.charIndex = preferredCharIndex;
   } else {
-    // 랜덤 배정 — 사용 중이지 않은 첫 번째 인덱스 선택
-    let charIdx = 0;
+    // 랜덤 배정 — 사용 중이지 않은 인덱스 목록에서 무작위 선택
+    const available = [];
     for (let j = 0; j < CHAR_COUNT; j++) {
-      if (!usedCharIndices.has(j)) { charIdx = j; break; }
+      if (!usedCharIndices.has(j)) available.push(j);
     }
-    state.player.charIndex = charIdx;
+    state.player.charIndex = available.length > 0
+      ? available[Math.floor(Math.random() * available.length)]
+      : 0;
   }
   // 입장 시점에 현재 CFG.MAP_LEN으로 맵 재생성 (settings 리스너가 이미 MAP_LEN을 갱신한 뒤)
   state.map   = generateMap(CFG.SEED, CFG.MAP_LEN);
@@ -1469,6 +1471,154 @@ async function renderHofSection(path, listEl, nameField) {
     listEl.innerHTML = '<div class="hofEmpty">불러오기 실패</div>';
     console.error('[기록판] 조회 실패:', e);
   }
+}
+
+// =============================================
+// 튜토리얼
+// =============================================
+const TUTORIAL_SLIDES = [
+  {
+    icon: '🏔️',
+    title: '천국의 계단이란?',
+    html: `
+      <p>계단을 오르며 <strong>가장 높은 곳</strong>에 도달하는 게임이에요.</p>
+      <p>과학선생님이 <strong>'무한의 계단'</strong>에서 영감을 받아 만든 학습게임이에요.</p>
+      <p>화면에 표시된 계단이 가리키는 방향을 정확히 입력하면<br>한 칸 위로 올라갑니다!</p>
+      <p>다른 친구들보다 먼저 목표 높이에 도달해 보세요. 🥇</p>
+    `,
+  },
+  {
+    icon: '⌨️',
+    title: '조작 방법',
+    html: `
+      <div class="tutKeyGrid">
+        <div class="tutKey"><span class="tutKeyIcon">A</span><span class="tutKeyDesc">왼쪽 1칸</span></div>
+        <div class="tutKey"><span class="tutKeyIcon">D</span><span class="tutKeyDesc">오른쪽 1칸</span></div>
+        <div class="tutKey"><span class="tutKeyIcon">Q</span><span class="tutKeyDesc">왼쪽 2칸 점프</span></div>
+        <div class="tutKey"><span class="tutKeyIcon">E</span><span class="tutKeyDesc">오른쪽 2칸 점프</span></div>
+      </div>
+      <p style="margin-top:12px">계단 모양을 잘 보고 방향을 골라 누르세요.<br>모바일은 화면 아래 버튼을 사용하세요. 📱</p>
+    `,
+  },
+  {
+    icon: '😱',
+    title: '정답과 오답',
+    html: `
+      <div class="tutResultRow">
+        <div class="tutResult ok">✅ 정답<br><small>한 칸 올라가요!</small></div>
+        <div class="tutResult ng">❌ 오답<br><small>추락합니다!</small></div>
+      </div>
+      <p>추락하면 <strong>5초</strong> 안에 <strong>A, D 키로 이동하여</strong>계단에 닿으면 그 자리에서 재개돼요.</p>
+      <p>5초 안에 닿지 못하면 <strong>게임오버</strong>!</p>
+    `,
+  },
+  {
+    icon: '⚡',
+    title: '채찍 게이지 주의!',
+    html: `
+      <div class="tutGaugeBar"><div class="tutGaugeFill"></div></div>
+      <p>키를 빨리 누르지 않으면 <strong>채찍 게이지</strong>가 차오릅니다.</p>
+      <p>게이지가 <strong>가득 차면</strong> 랜덤 방향 키가 자동으로 눌려<br>계단에서 떨어질 수 있어요!</p>
+      <p>⚡ 계속 움직여서 게이지를 낮게 유지하세요!</p>
+      <p>높이가 높아질수록 채찍 게이지가 쉽게 차오릅니다.</p>
+    `,
+  },
+  {
+    icon: '📝',
+    title: '퀴즈 타임!',
+    html: `
+      <p>일정 시간마다 <strong>퀴즈 3문제</strong>가 출제됩니다.<br>퀴즈 중에는 게임이 잠시 멈춰요.</p>
+      <div class="tutQuizResult">
+        <div class="tutQR gold">🥇 3개 정답 → 카드 4~5장 <span class="tutQRStar">★ 고급 포함!</span></div>
+        <div class="tutQR silver">🥈 2개 정답 → 일반 카드 3장</div>
+        <div class="tutQR bronze">🥉 1개 정답 → 아이템 없음</div>
+        <div class="tutQR stop">⛔ 0개 정답 → 3초간 게임 정지</div>
+      </div>
+    `,
+  },
+  {
+    icon: '🎁',
+    title: '일반 아이템',
+    html: `
+      <p>아이템을 <strong>클릭</strong>하면 설명을 볼 수 있어요!</p>
+      <div class="tutItemGrid">
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="현재 높이보다 1m 위의 안전한 계단으로 순간이동합니다.">🪜<span>사다리</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="나보다 바로 앞 등수 플레이어보다 2칸 위 계단으로 이동합니다. 앞에 플레이어가 없으면 효과 없음.">🏃<span>새치기</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="20초간 채찍 게이지가 1.5배 천천히 찹니다.">🥕<span>당근</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="30초간 채찍 게이지가 전혀 차지 않습니다.">💤<span>숨고르기</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="20초간 내가 지나가는 계단마다 폭죽 시각 효과가 나타납니다. 기능적 효과 없는 연출용 아이템이에요!">🎆<span>폭죽</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="아무 효과가 없습니다. 운이 없었네요!">😶<span>꽝</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="상대 플레이어의 화면이 3초간 좌우반전됩니다. 발동 전 확인 창이 뜨고, 취소하면 모두에게 '자비를 베푸셨습니다' 메시지가 표시돼요.">🪞<span>거울의 저주</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="상대 플레이어의 화면이 6초간 밝고 어둡게 반복해 깜빡입니다. 발동 전 확인 창이 뜨고, 취소하면 모두에게 '자비를 베푸셨습니다' 메시지가 표시돼요.">🌑<span>암흑의 저주</span></div>
+      </div>
+      <div class="tutItemDetail" id="tutItemDetail">👆 아이템을 클릭해 설명을 확인하세요.</div>
+    `,
+  },
+  {
+    icon: '⭐',
+    title: '고급 아이템',
+    html: `
+      <p>3개 정답 시 카드에 <strong>고급 아이템★</strong>이 섞여 있어요! 아이템을 <strong>클릭</strong>해 보세요.</p>
+      <div class="tutItemGrid">
+        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="추락 시 떨어지는 속도가 느려집니다. A, D 키로 착지할 계단을 찾을 시간을 벌어줍니다.">🪂<span>낙하산</span></div>
+        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="30초간 채찍 게이지가 2.5배 천천히 찹니다. 당근보다 훨씬 강력해요!">💊<span>진정제</span></div>
+        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="현재 높이보다 5m 위의 안전한 계단으로 순간이동합니다.">🛗<span>엘리베이터</span></div>
+        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="나보다 위에 있는 플레이어 중 한 명이 랜덤으로 선택되어 그 위치의 계단으로 순간이동합니다.">🤝<span>친구따라강남</span></div>
+        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="10초간 맵을 자동으로 분석해 올바른 키를 자동으로 입력합니다. 점프 칸도 자동으로 통과해요!">🚗<span>자율주행</span></div>
+      </div>
+      <div class="tutItemDetail" id="tutItemDetail">👆 아이템을 클릭해 설명을 확인하세요.</div>
+    `,
+  },
+];
+
+let _tutPage = 0;
+
+// 아이템 카드 클릭 시 해당 카드 강조 + 하단 설명 표시
+function selectTutItem(el) {
+  el.closest('.tutItemGrid').querySelectorAll('.tutItem').forEach(i => i.classList.remove('selected'));
+  el.classList.add('selected');
+  const detailEl = document.getElementById('tutItemDetail');
+  if (detailEl) {
+    detailEl.textContent = el.dataset.detail;
+    detailEl.classList.add('visible');
+  }
+}
+
+function openTutorial() {
+  _tutPage = 0;
+  _renderTutSlide();
+  document.getElementById('tutorialOverlay').classList.remove('hidden');
+}
+
+function closeTutorial() {
+  document.getElementById('tutorialOverlay').classList.add('hidden');
+}
+
+function tutorialNav(dir) {
+  _tutPage = Math.max(0, Math.min(TUTORIAL_SLIDES.length - 1, _tutPage + dir));
+  _renderTutSlide();
+}
+
+function _renderTutSlide() {
+  const s    = TUTORIAL_SLIDES[_tutPage];
+  const last = TUTORIAL_SLIDES.length - 1;
+
+  document.getElementById('tutorialSlide').innerHTML = `
+    <div class="tutIcon">${s.icon}</div>
+    <div class="tutTitle">${s.title}</div>
+    <div class="tutBody">${s.html}</div>
+  `;
+
+  document.getElementById('btnTutPrev').disabled = _tutPage === 0;
+  document.getElementById('btnTutNext').textContent = _tutPage === last ? '닫기 ✓' : '▶';
+  document.getElementById('btnTutNext').onclick = _tutPage === last
+    ? closeTutorial
+    : () => tutorialNav(1);
+
+  // 점 인디케이터
+  document.getElementById('tutorialDots').innerHTML = TUTORIAL_SLIDES
+    .map((_, i) => `<span class="tutDot${i === _tutPage ? ' active' : ''}" onclick="tutorialNav(${i - _tutPage})"></span>`)
+    .join('');
 }
 
 // 명예의 전당 오버레이 열기 (두 섹션 병렬 로드)
