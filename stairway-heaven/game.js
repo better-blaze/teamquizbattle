@@ -260,38 +260,23 @@ function showFriendFollowOverlay() {
   const subEl     = document.getElementById('friendFollowSub');
 
   if (state.online.enabled) {
-    // 온라인: 위에 있는 플레이어를 버튼 목록으로 표시
-    inputEl.style.display   = 'none';
-    confirmEl.style.display = 'none';
-
-    // 기존 동적 버튼 목록 제거/재생성
-    let listEl = document.getElementById('friendFollowList');
-    if (!listEl) {
-      listEl = document.createElement('div');
-      listEl.id = 'friendFollowList';
-      document.getElementById('friendFollowBtns').insertAdjacentElement('beforebegin', listEl);
-    }
-    listEl.innerHTML = '';
+    // 온라인: 나보다 위에 있는 플레이어 중 랜덤 1명 선택 후 예/아니오 확인
+    inputEl.style.display = 'none';
 
     const above = Object.values(state.online.otherPlayers)
-      .filter(op => op.step > state.player.stepIndex)
-      .sort((a, b) => b.step - a.step);
+      .filter(op => op.step > state.player.stepIndex);
 
     if (above.length === 0) {
       subEl.textContent = '위에 있는 친구가 없습니다';
+      confirmEl.style.display = 'none';
+      state.friendFollow.targetStep = null;
     } else {
-      subEl.textContent = '따라갈 친구를 선택하세요';
-      above.forEach(op => {
-        const btn = document.createElement('button');
-        const h   = (op.step / CFG.STEPS_PER_M).toFixed(1);
-        btn.className   = 'friendFollowPlayerBtn';
-        btn.textContent = `${op.name}  (${h}m)  →`;
-        btn.onclick = () => {
-          hideFriendFollowOverlay();
-          teleportToHeight(op.step / CFG.STEPS_PER_M);
-        };
-        listEl.appendChild(btn);
-      });
+      // 무작위 1명 선택
+      const chosen = above[Math.floor(Math.random() * above.length)];
+      state.friendFollow.targetStep = chosen.step;
+      const h = (chosen.step / CFG.STEPS_PER_M).toFixed(1);
+      subEl.textContent = `${chosen.name} (${h}m)님을 따라가시겠습니까?`;
+      confirmEl.style.display = '';
     }
   } else {
     // 오프라인: 기존 높이 입력 UI
@@ -402,12 +387,13 @@ function initAdminItemSelect() {
 // 6단계 — 멀티플레이 (Firebase)
 // =============================================
 
-// 이 기기 고유 UID — localStorage에 저장해 재접속 시 재사용
+// 탭 고유 UID — sessionStorage에 저장해 같은 탭 새로고침 시 재사용
+// (localStorage는 같은 브라우저의 탭 간 공유되므로 멀티탭 테스트 시 충돌 발생)
 function getPlayerUID() {
-  let uid = localStorage.getItem('stairway_uid');
+  let uid = sessionStorage.getItem('stairway_uid');
   if (!uid) {
     uid = 'u' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
-    localStorage.setItem('stairway_uid', uid);
+    sessionStorage.setItem('stairway_uid', uid);
   }
   return uid;
 }
@@ -1012,7 +998,7 @@ const state = {
     otherPlayers: {},        // { uid: { name, step, x, isFalling, displayStep, displayX, color } }
     lastWriteAt : 0,         // 마지막 Firebase write 시각
   },
-  friendFollow: { active: false }, // 친구따라강남 오버레이 활성 여부
+  friendFollow: { active: false, targetStep: null }, // 친구따라강남 오버레이 활성 여부 + 선택된 대상 step
   curse: {
     confirmActive  : false,  // "저주를 거시겠습니까?" 확인 창 활성
     confirmItem    : '',     // 확인 중인 저주 아이템 id
@@ -2314,10 +2300,18 @@ document.getElementById('quizSubmit').addEventListener('click', submitQuizAnswer
 // =============================================
 
 document.getElementById('friendFollowConfirm').addEventListener('click', () => {
+  if (state.online.enabled) {
+    // 온라인: 랜덤 선택된 플레이어 높이로 순간이동
+    if (state.friendFollow.targetStep != null) {
+      hideFriendFollowOverlay();
+      teleportToHeight(state.friendFollow.targetStep / CFG.STEPS_PER_M);
+    }
+    return;
+  }
+  // 오프라인(디버그): 입력한 높이로 이동
   const input    = document.getElementById('friendFollowInput');
   const h        = parseFloat(input.value);
   const currentH = state.player.stepIndex / CFG.STEPS_PER_M;
-
   if (isNaN(h) || h <= currentH) {
     input.style.borderColor = '#ff4757';
     return;
