@@ -519,7 +519,7 @@ html, body {
   border: 1px solid rgba(255, 215, 0, 0.28);
   border-radius: 10px;
   padding: 12px 14px;
-  min-width: 200px;
+  min-width: 220px;
   font-family: monospace;
   max-height: calc(100vh - 60px);
   overflow-y: auto;
@@ -539,7 +539,7 @@ html, body {
 .adminGroup:last-child { margin-bottom: 0; }
 
 .adminLabel {
-  font-size: 10px;
+  font-size: 11px;
   color: rgba(255, 255, 255, 0.38);
   margin-bottom: 5px;
   letter-spacing: 0.3px;
@@ -562,40 +562,40 @@ html, body {
   margin-bottom: 3px;
 }
 .adminSettingKey {
-  font-size: 9px;
+  font-size: 11px;
   color: rgba(255,255,255,0.60);
   white-space: nowrap;
-  min-width: 76px;
+  min-width: 84px;
 }
 /* #adminPanel input 규칙(특이도 1-0-1)을 덮기 위해 특이도 1-1-1로 올림 */
 #adminPanel .adminSettingRow input[type="number"] {
-  width: 44px;
-  padding: 1px 3px;
-  font-size: 10px;
+  width: 50px;
+  padding: 2px 4px;
+  font-size: 11px;
   text-align: center;
   margin-bottom: 0;
 }
 .adminSettingUnit {
-  font-size: 9px;
+  font-size: 11px;
   color: rgba(255,255,255,0.35);
 }
 
 /* 아이템 가중치 — 1열, 이름·입력·% 세 칸 나란히 */
 .adminWeightTier { margin-bottom: 6px; }
 .adminWeightTierLabel {
-  font-size: 9px;
+  font-size: 11px;
   color: rgba(255,255,255,0.40);
-  margin-bottom: 2px;
+  margin-bottom: 3px;
   letter-spacing: 0.2px;
 }
 .adminWeightRow {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-bottom: 2px;
+  gap: 5px;
+  margin-bottom: 3px;
 }
 .adminWeightName {
-  font-size: 9px;
+  font-size: 11px;
   color: rgba(255,255,255,0.80);
   white-space: nowrap;
   flex: 1;
@@ -605,18 +605,18 @@ html, body {
 }
 /* 특이도 (2,1,1) — #adminPanel input[type="number"] (1,1,1)을 확실히 이김 */
 #adminPanel #adminWeightContainer input[type="number"] {
-  width: 32px;
-  padding: 1px 2px;
-  font-size: 9px;
+  width: 36px;
+  padding: 2px 3px;
+  font-size: 11px;
   text-align: center;
   margin-bottom: 0;
   flex-shrink: 0;
 }
 .adminWeightPct {
-  font-size: 9px;
+  font-size: 11px;
   color: rgba(255,255,255,0.40);
   white-space: nowrap;
-  width: 32px;
+  width: 36px;
   text-align: right;
   flex-shrink: 0;
 }
