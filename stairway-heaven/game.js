@@ -385,15 +385,27 @@ function adminAddDummies() {
   const n      = Math.max(1, parseInt(document.getElementById('adminDummyCount').value) || 1);
   const maxPos = Math.max(state.player.stepIndex, CFG.STEPS_PER_M * 5);
   for (let i = 0; i < n; i++) {
-    const idx = state.dummyPlayers.length;
-    state.dummyPlayers.push({
-      id          : `dummy_${Date.now()}_${i}`,
+    const idx     = state.dummyPlayers.length;
+    const dId     = `dummy_${Date.now()}_${i}`;
+    const stepPos = Math.random() * maxPos;
+    const dummy   = {
+      id          : dId,
       name        : DUMMY_NAMES[idx % DUMMY_NAMES.length],
-      stepPos     : Math.random() * maxPos,
+      stepPos,
       stepsPerSec : 0.4 + Math.random() * 1.8,  // 0.4~2.2 steps/sec
       lastUpdateAt: Date.now(),
+      lastWriteAt : 0,
       color       : DUMMY_COLORS[idx % DUMMY_COLORS.length],
-    });
+    };
+    state.dummyPlayers.push(dummy);
+
+    // 온라인: Firebase에 일반 플레이어처럼 등록 → 다른 클라이언트에 노출
+    if (db && state.online.enabled) {
+      const stepIdx = Math.min(Math.floor(stepPos), state.steps.length - 1);
+      const ref = db.ref(`stairway/sessions/${state.online.pin}/players/${dId}`);
+      ref.set({ name: dummy.name, step: stepIdx, x: state.steps[stepIdx].x, isFalling: false, t: Date.now() });
+      ref.onDisconnect().remove();
+    }
   }
   document.getElementById('adminDummyStatus').textContent = `${state.dummyPlayers.length}명`;
   console.log(`[관리자] 더미 ${n}명 추가 → 총 ${state.dummyPlayers.length}명`);
@@ -401,6 +413,12 @@ function adminAddDummies() {
 
 // 더미 플레이어 전체 삭제
 function adminClearDummies() {
+  // 온라인: Firebase에서도 제거
+  if (db && state.online.enabled) {
+    for (const d of state.dummyPlayers) {
+      db.ref(`stairway/sessions/${state.online.pin}/players/${d.id}`).remove();
+    }
+  }
   state.dummyPlayers = [];
   document.getElementById('adminDummyStatus').textContent = '0명';
   console.log('[관리자] 더미 플레이어 전체 삭제');
@@ -463,6 +481,10 @@ function validateLoginInputs(name, pin) {
     showLoginMsg('이름은 1~8자, 공백 없이 입력하세요.');
     return false;
   }
+  if (name === '선생님') {
+    showLoginMsg("'선생님'은 사용할 수 없는 이름입니다.");
+    return false;
+  }
   if (!/^\d{4}$/.test(pin)) {
     showLoginMsg('PIN은 숫자 4자리로 입력하세요.');
     return false;
@@ -497,6 +519,21 @@ async function joinOnline(name, pin) {
     const snap = await db.ref(`stairway/sessions/${pin}`).get();
     if (!snap.exists()) { showLoginMsg('존재하지 않는 PIN입니다.'); return; }
     if (snap.val().gameActive === false) { showLoginMsg('이미 종료된 방입니다.'); return; }
+
+    // 이름 중복 확인 — 같은 UID(재접속)는 허용, 다른 UID가 같은 이름 사용 중이면 차단
+    const myUid = getPlayerUID();
+    const playersSnap = await db.ref(`stairway/sessions/${pin}/players`).get();
+    if (playersSnap.exists()) {
+      const players = playersSnap.val();
+      const duplicate = Object.entries(players).find(
+        ([uid, pd]) => pd.name === name && uid !== myUid
+      );
+      if (duplicate) {
+        showLoginMsg(`'${name}'은(는) 이미 사용 중인 이름입니다.`);
+        return;
+      }
+    }
+
     await doJoin(name, pin, false);
   } catch (e) {
     showLoginMsg('입장 실패: ' + e.message);
@@ -519,6 +556,10 @@ async function doJoin(name, pin, isHost) {
 
   // 재접속 체크: 이미 같은 UID의 데이터가 Firebase에 있으면 step 복구
   const existSnap = await db.ref(`stairway/sessions/${pin}/players/${uid}`).get();
+  // 시작 계단 인덱스 — 이 아래로 추락하면 즉시 게임오버
+  const startStepIdx = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
+  state.player.startStepIndex = startStepIdx;
+
   if (existSnap.exists() && existSnap.val().step != null) {
     const prev = existSnap.val();
     state.player.stepIndex  = prev.step || 0;
@@ -530,8 +571,7 @@ async function doJoin(name, pin, isHost) {
     console.log(`[재접속] ${name} — step ${prev.step}에서 재개`);
   } else {
     // 새 입장: 관리자 설정 시작 높이 적용
-    const startStep = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
-    state.player.stepIndex = startStep;
+    state.player.stepIndex = startStepIdx;
   }
 
   // 카메라 즉시 해당 계단으로 이동
@@ -584,7 +624,9 @@ function listenPlayers(pin) {
     delete data[state.online.playerId]; // 내 데이터 제외
 
     // 새 플레이어 추가 / 기존 업데이트
+    // 더미 플레이어는 추가한 클라이언트에서 로컬로 직접 렌더하므로 otherPlayers에서 제외 (중복 방지)
     for (const [uid, pd] of Object.entries(data)) {
+      if (uid.startsWith('dummy_') && state.dummyPlayers.some(d => d.id === uid)) continue;
       if (!state.online.otherPlayers[uid]) {
         state.online.otherPlayers[uid] = {
           name       : pd.name,
@@ -994,6 +1036,7 @@ const state = {
   steps : [],
   player: {
     stepIndex         : 0,
+    startStepIndex    : 0,   // 이 게임에서 출발한 계단 인덱스 — 이 아래로 추락 시 즉시 게임오버
     phase             : 'normal',
     fallFromY         : 0,   // 추락 시작 world-y (발판 y)
     fallFromStepIndex : -1,  // 추락 시작 발판 인덱스 (착지 즉시 복귀 방지)
@@ -1143,8 +1186,9 @@ function handleInput(code) {
     state.fireworks           = [];
     state.friendFollow.active = false;
     // 관리자 시작 높이 설정 적용
-    if (state.admin.startHeight > 0) {
-      const startIdx   = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
+    const startIdx = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
+    player.startStepIndex = startIdx;
+    if (startIdx > 0) {
       player.stepIndex = startIdx;
       state.camera.x   = state.steps[startIdx].x;
       state.camera.y   = state.steps[startIdx].y - CFG.STEP_TOP;
@@ -1834,6 +1878,14 @@ function loop() {
     const s        = (now - player.driftStartAt) / 1000;
     const feetY    = calcDriftY(s);
 
+    // 시작 계단 위면보다 아래로 추락하면 즉시 게임오버
+    const floorY = steps[player.startStepIndex].y - CFG.STEP_TOP;
+    if (feetY > floorY) {
+      player.driftY            = feetY;
+      player.phase             = 'gameover';
+      player.parachuteDeployed = false;
+    }
+
     for (let i = 0; i < steps.length; i++) {
       const step     = steps[i];
       const surfaceY = step.y - CFG.STEP_TOP; // 발판 윗면 y
@@ -1880,11 +1932,19 @@ function loop() {
     state.fireworks = state.fireworks.filter(p => now - p.spawnedAt < p.lifetime * 1000);
   }
 
-  // 더미 플레이어 이동 업데이트
+  // 더미 플레이어 이동 업데이트 + Firebase 동기화 (400ms throttle)
   for (const d of state.dummyPlayers) {
     const dt = (now - d.lastUpdateAt) / 1000;
     d.stepPos      = Math.min(d.stepPos + d.stepsPerSec * dt, state.steps.length - 1);
     d.lastUpdateAt = now;
+
+    if (db && state.online.enabled && now - d.lastWriteAt >= 400) {
+      d.lastWriteAt = now;
+      const stepIdx = Math.min(Math.floor(d.stepPos), state.steps.length - 1);
+      db.ref(`stairway/sessions/${state.online.pin}/players/${d.id}`).update({
+        step: stepIdx, x: state.steps[stepIdx].x, t: now,
+      });
+    }
   }
 
   // ── 저주 상태 머신 ──────────────────────────────
