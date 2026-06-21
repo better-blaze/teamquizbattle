@@ -844,6 +844,26 @@ function showLoginMsg(msg) {
   el.classList.toggle('hidden', !msg);
 }
 
+// 방 만들기 비밀번호 확인 — 정답이면 폼 표시, 틀리면 안내
+function verifyHostPassword() {
+  const input = document.getElementById('hostPasswordInput');
+  const msg   = document.getElementById('hostPasswordMsg');
+  if (!input) return;
+  if (input.value === HOST_PWD) {
+    document.getElementById('hostPasswordPrompt').classList.add('hidden');
+    document.getElementById('hostForm').classList.remove('hidden');
+    input.value = '';
+    if (msg) msg.textContent = '';
+  } else {
+    if (msg) {
+      msg.textContent = '비밀번호가 틀렸습니다.';
+      setTimeout(() => { msg.textContent = ''; }, 2000);
+    }
+    input.value = '';
+    input.focus();
+  }
+}
+
 // 이름·PIN 입력값 유효성 검사
 // isHost=true 이면 '선생님' 이름 허용 (방 만들기 전용)
 function validateLoginInputs(name, pin, isHost = false) {
@@ -1375,6 +1395,7 @@ async function adminEndGame() {
 const HOF_PATH_INDIVIDUAL = 'stairway/hallOfFame/individual'; // 개인 기록
 const HOF_PATH_CLASS      = 'stairway/hallOfFame/class';      // 반 합동기록
 const HOF_PWD             = '0257';
+const HOST_PWD            = '0257'; // 방 만들기 잠금 비밀번호 — 여기서 변경
 const HOF_LIMIT           = 10;
 let _lastSumScore = 0; // 시상대 화면의 총합 점수 (반 합동기록 저장 시 사용)
 
@@ -1476,8 +1497,11 @@ function confirmHofPwd() {
     document.getElementById('hofPwdInput').focus();
     return;
   }
+  // closeHofPwdModal() 내부에서 _hofPwdCallback이 null로 초기화되므로
+  // 콜백을 미리 저장한 뒤 모달을 닫아야 한다
+  const cb = _hofPwdCallback;
   closeHofPwdModal();
-  if (_hofPwdCallback) _hofPwdCallback();
+  if (cb) cb();
 }
 
 // 개별 기록 삭제

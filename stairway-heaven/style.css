@@ -945,6 +945,39 @@ html, body {
 .loginSection button:hover { background: #2a7ee0; }
 
 /* 선생님 로그인 패널 — 문제 업로드 영역 */
+#hostPasswordPrompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+#hostPasswordInput {
+  flex: 1;
+  min-width: 120px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.20);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 15px;
+  outline: none;
+  letter-spacing: 4px;
+}
+#hostPasswordInput:focus { border-color: rgba(255,215,0,0.5); }
+#hostPasswordMsg {
+  width: 100%;
+  font-size: 12px;
+  color: #ff6b81;
+  min-height: 16px;
+}
+.pwdHint {
+  width: 100%;
+  font-size: 11px;
+  color: rgba(255,255,255,0.28);
+  margin-top: 2px;
+}
+
 #hostQuizArea {
   display: flex;
   align-items: center;
