@@ -212,13 +212,9 @@ function initSettingsListener() {
           if (el) el.value = saved.targetHeight;
         }
         // 관리자 패널 채찍 설정 복원
-        fill('settingWhipNStart',    saved.whipNStart);
-        fill('settingWhipHeightMax', saved.whipHeightMax);
-        fill('settingWhipNEnd',      saved.whipNEnd);
-        fill('settingQuizInterval',  saved.quizIntervalMs);
-        // 레이블 동기화
-        const lbl = document.getElementById('settingWhipHeightMaxLabel');
-        if (lbl && saved.whipHeightMax != null) lbl.textContent = saved.whipHeightMax;
+        fill('settingWhipNStart',   saved.whipNStart);
+        fill('settingWhipNEnd',     saved.whipNEnd);
+        fill('settingQuizInterval', saved.quizIntervalMs);
         // 아이템 가중치 입력칸 복원
         if (saved.itemWeights) fillWeightInputs(saved.itemWeights);
         // 가상 키보드 전파 (교사가 토글하면 모든 클라이언트에 반영)
@@ -362,21 +358,18 @@ async function adminSaveSettings() {
     msgEl.style.color = ok ? '#2ed573' : '#ff6b81';
   };
 
-  const whipNStart     = parseFloat(document.getElementById('settingWhipNStart')?.value);
-  const whipHeightMax  = parseFloat(document.getElementById('settingWhipHeightMax')?.value);
-  const whipNEnd       = parseFloat(document.getElementById('settingWhipNEnd')?.value);
+  const whipNStart    = parseFloat(document.getElementById('settingWhipNStart')?.value);
+  const whipNEnd      = parseFloat(document.getElementById('settingWhipNEnd')?.value);
   const quizIntervalMs = parseFloat(document.getElementById('settingQuizInterval')?.value);
 
   // 검증
-  if (!whipNStart    || whipNStart    <= 0)  { showMsg('0m 값은 양수를 입력하세요.'); return; }
-  if (!whipHeightMax || whipHeightMax <= 0)  { showMsg('최솟값 도달 높이는 양수를 입력하세요.'); return; }
-  if (!whipNEnd      || whipNEnd      <= 0)  { showMsg('최솟값 n은 양수를 입력하세요.'); return; }
-  if (whipNEnd >= whipNStart)                { showMsg('최솟값 n은 0m 값보다 작아야 합니다.'); return; }
+  if (!whipNStart || whipNStart <= 0)   { showMsg('0m 값은 양수를 입력하세요.'); return; }
+  if (!whipNEnd   || whipNEnd   <= 0)   { showMsg('500m 값은 양수를 입력하세요.'); return; }
+  if (whipNEnd >= whipNStart)           { showMsg('500m 값은 0m 값보다 작아야 합니다.'); return; }
   if (!quizIntervalMs || quizIntervalMs < 5000) { showMsg('퀴즈 간격은 5000ms 이상이어야 합니다.'); return; }
 
   // CFG에 즉시 반영 (실시간 리스너가 다른 클라이언트에도 전파)
   CFG.WHIP_N_START     = whipNStart;
-  CFG.WHIP_HEIGHT_MAX  = whipHeightMax;
   CFG.WHIP_N_END       = whipNEnd;
   CFG.QUIZ_INTERVAL_MS = quizIntervalMs;
 
@@ -386,11 +379,11 @@ async function adminSaveSettings() {
   setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 2000);
 }
 
-// 충전식 아이템 — id별 사용 횟수와 유효시간 (이 목록에 없으면 시간제 아이템)
+// 충전식 아이템 — id별 사용 횟수 (시간제한 없음, 추락 시 1회 소모)
 const ITEM_CHARGES = {
-  '낙하산'   : { charges: 1, durationMs: 30000 },
-  '낙하산2개': { charges: 2, durationMs: 45000 },
-  '낙하산3개': { charges: 3, durationMs: 60000 },
+  '낙하산'   : { charges: 1 },
+  '낙하산2개': { charges: 2 },
+  '낙하산3개': { charges: 3 },
 };
 
 // =============================================
@@ -447,8 +440,7 @@ function activateItem(id, durationMs = CFG.ITEM_DURATION_MS) {
     const cur = state.player.activeItem;
     let curLabel;
     if (cur.charges !== undefined) {
-      const remSec = Math.ceil(Math.max(cur.endsAt - now, 0) / 1000);
-      curLabel = `'낙하산' (${cur.charges}회, ${remSec}초 남음)`;
+      curLabel = `'낙하산' (${cur.charges}회 보유 중)`;
     } else {
       curLabel = `'${cur.id}' (${Math.ceil((cur.endsAt - now) / 1000)}초 남음)`;
     }
@@ -457,9 +449,9 @@ function activateItem(id, durationMs = CFG.ITEM_DURATION_MS) {
   }
   const chargeInfo = ITEM_CHARGES[id];
   if (chargeInfo !== undefined) {
-    // 충전식 — 낙하 때마다 1회 소모 또는 유효시간 초과 시 자동 제거
-    state.player.activeItem = { id, charges: chargeInfo.charges, endsAt: now + chargeInfo.durationMs, durationMs: chargeInfo.durationMs };
-    console.log(`[아이템] ${id} 활성화 — ${chargeInfo.charges}회 / ${chargeInfo.durationMs / 1000}초`);
+    // 충전식(낙하산) — 추락 시 1회 소모, 시간제한 없음
+    state.player.activeItem = { id, charges: chargeInfo.charges };
+    console.log(`[아이템] ${id} 활성화 — ${chargeInfo.charges}회 (시간제한 없음)`);
   } else {
     // 시간제 — durationMs 초 후 만료 (durationMs를 아이템에 저장해 HUD에서 참조)
     state.player.activeItem = { id, endsAt: now + durationMs, durationMs };
@@ -656,8 +648,8 @@ function getCharImageSrc(charIndex) {
 }
 
 // 더미 플레이어 이름·색상 풀
-const DUMMY_NAMES  = ['김민준', '이서연', '박지호', '최수아', '정우진', '한나라', '오민서', '윤채원',
-                      '송하은', '임도윤', '강지유', '조서준'];
+const DUMMY_NAMES  = ['김길동', '이한음', '박수아', '윤희순', '정도전', '이성계', '박팽년', '신숙주',
+                      '송시열', '유관순', '최무선', '김만덕'];
 const DUMMY_COLORS = ['#4a9eff', '#4ae0a0', '#ff9f43', '#b06eff', '#26de81', '#fd9644', '#ff6b81', '#a29bfe'];
 
 // 시작 높이 설정 + 즉시 이동 (normal 상태엔 teleportToHeight, 아니면 카메라 직접 이동)
@@ -1040,14 +1032,12 @@ async function doJoin(name, pin, isHost, preferredCharIndex = null) {
     }
     state.player.charIndex = preferredCharIndex;
   } else {
-    // 랜덤 배정 — 사용 중이지 않은 인덱스 목록에서 무작위 선택
-    const available = [];
+    // 랜덤 배정 — 사용 중이지 않은 첫 번째 인덱스 선택
+    let charIdx = 0;
     for (let j = 0; j < CHAR_COUNT; j++) {
-      if (!usedCharIndices.has(j)) available.push(j);
+      if (!usedCharIndices.has(j)) { charIdx = j; break; }
     }
-    state.player.charIndex = available.length > 0
-      ? available[Math.floor(Math.random() * available.length)]
-      : 0;
+    state.player.charIndex = charIdx;
   }
   // 입장 시점에 현재 CFG.MAP_LEN으로 맵 재생성 (settings 리스너가 이미 MAP_LEN을 갱신한 뒤)
   state.map   = generateMap(CFG.SEED, CFG.MAP_LEN);
@@ -2600,11 +2590,9 @@ function render() {
     let label, pct;
 
     if (item.charges !== undefined) {
-      // 충전식(낙하산): 잔여 횟수 + 총 유효시간 고정 표시, 바는 시간 기준
-      const info = ITEM_CHARGES[item.id];
-      const rem  = Math.max(item.endsAt - Date.now(), 0);
-      label = `낙하산  x${item.charges}  ${info.durationMs / 1000}초`;
-      pct   = rem / info.durationMs;
+      // 충전식(낙하산): 잔여 횟수만 표시, 시간제한 없음
+      label = `🪂 낙하산  x${item.charges}  (추락 시 발동)`;
+      pct   = 1; // 바를 항상 가득 찬 상태로 표시
     } else {
       // 시간제: 총 지속 시간 고정 표시 + 바로 남은 비율 표현
       const totalMs = item.durationMs ?? CFG.ITEM_DURATION_MS;
