@@ -208,6 +208,7 @@
       <button onclick="useItem('엘리베이터')">엘리베이터</button>
       <button onclick="useItem('친구따라강남')">친구따라강남</button>
       <button onclick="useItem('천사의 날개')">천사의 날개</button>
+      <button onclick="useItem('소환술')">소환술</button>
     </div>
     <div class="debugGroup">
       <div class="debugLabel">친구따라강남 테스트</div>
@@ -342,6 +343,24 @@
       <div id="curseConfirmBtns">
         <button id="curseConfirmYes">예 — 저주!</button>
         <button id="curseConfirmNo">아니요</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 소환당했을 때 표시되는 HTML 알림 (퀴즈 오버레이보다 위에 표시) -->
+  <div id="summonReceivedNotice" class="hidden">
+    🌀 <span id="summonReceivedName"></span>님이 소환하였습니다.
+  </div>
+
+  <!-- 소환술 확인 오버레이 -->
+  <div id="summonConfirmOverlay" class="hidden">
+    <div id="summonConfirmPanel">
+      <div id="summonConfirmTitle">🌀 소환 주문을 외우시겠습니까?</div>
+      <div id="summonConfirmBody">나보다 낮은 순위의 누군가를<br>내 위치로 소환하고<br>나는 아이템 카드를 새로 뽑습니다.</div>
+      <div id="summonConfirmTimer">5</div>
+      <div id="summonConfirmBtns">
+        <button id="summonConfirmYes">예 — 소환!</button>
+        <button id="summonConfirmNo">아니오</button>
       </div>
     </div>
   </div>

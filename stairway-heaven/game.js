@@ -71,6 +71,10 @@ const CFG = {
   CURSE_DARK_OPACITY_MAX : 0.99, // 중간(가장 어두운 순간) 불투명도 — 여기서 조절
   // 가장 어두워지는 시점 = CURSE_DARK_MS / 2 (자동 계산, 별도 상수 불필요)
   CURSE_MERCY_MS    : 3000,  // "자비를 베푸셨습니다" 메시지 표시 시간 (ms)
+  // ── 소환술 ──────────────────────────────────
+  SUMMON_CONFIRM_MS : 5000, // 소환 확인 창 타임아웃 (ms) — 여기서 조절
+  SUMMON_FREEZE_MS  : 2000, // 소환 직후 조작 차단 시간 (ms) — 여기서 조절
+  SUMMON_PORTAL_MS  : 1800, // 차원의 문 연출 지속 시간 (ms) — 여기서 조절
   // ── 천사의 날개 ─────────────────────────────
   ANGEL_WING_MS       : 10000, // 천사의 날개 지속 시간 (ms)
   ANGEL_WING_SPEED_MPS: 0.7,   // 천사의 날개 상승 속도 (m/s) — 여기서 조절
@@ -98,6 +102,7 @@ const ITEM_POOL = {
     { id: '친구따라강남', weight: 1 },
     { id: '자율주행',    weight: 1 },
     { id: '천사의 날개', weight: 1 },
+    { id: '소환술',     weight: 1 },
   ],
   일반: [
     { id: '사다리',      weight: 1 },
@@ -152,6 +157,7 @@ const GAME_SETTINGS_DEFAULT = {
     '친구따라강남': 1,
     '자율주행'    : 1,
     '천사의 날개' : 1,
+    '소환술'      : 1,
     // 일반
     '사다리'      : 1,
     '당근'        : 1,
@@ -416,6 +422,7 @@ const ITEM_HANDLERS = {
   '암흑의 저주': () => { startCurseConfirm('암흑의 저주'); },
   '천사의 날개': () => { startAngelWings(); },
   '닭날개'     : () => { startChickenWings(); },
+  '소환술'     : () => { showSummonConfirm(); },
 };
 
 // 아이템 발동 진입점 — 디버그 패널·카드 UI 모두 이 함수 하나를 호출
@@ -470,6 +477,197 @@ function getFlyingWorldY() {
   const elapsed  = (Date.now() - state.player.flyingStartAt) / 1000;
   const speedPx  = speedMps * CFG.STEPS_PER_M * CFG.STEP_GAP;
   return state.player.flyingStartY - elapsed * speedPx;
+}
+
+// =============================================
+// 소환술
+// =============================================
+
+// 소환술 확인 창 표시 — 대상 없으면 확인창 없이 즉시 메시지만 표시
+function showSummonConfirm() {
+  if (state.player.phase !== 'normal') return;
+
+  const myStep = state.player.stepIndex;
+
+  // 오프라인 모드 또는 나보다 아래에 플레이어가 없는 경우: 확인창 없이 바로 처리
+  const hasCandidates = state.online.enabled && (
+    Object.values(state.online.otherPlayers).some(op => op.step < myStep) ||
+    state.dummyPlayers.some(d => Math.floor(d.stepPos) < myStep)
+  );
+
+  if (!hasCandidates) {
+    const msg = state.online.enabled
+      ? '소환할 대상이 없습니다. 카드를 새로 뽑습니다.'
+      : '[디버그] 오프라인 모드 — 카드만 뽑습니다.';
+    state.player.noticeAt  = Date.now();
+    state.player.noticeMsg = msg;
+    setTimeout(() => showCardOverlay(3), 2200); // 메시지를 읽을 시간 확보 후 카드 표시
+    return;
+  }
+
+  // 소환할 대상이 있는 경우: 확인창 표시
+  state.summon.confirmActive = true;
+  state.summon.confirmEndsAt = Date.now() + CFG.SUMMON_CONFIRM_MS;
+  document.getElementById('summonConfirmOverlay').classList.remove('hidden');
+}
+
+// 소환술 확인 창 닫기
+function hideSummonConfirm() {
+  state.summon.confirmActive = false;
+  document.getElementById('summonConfirmOverlay').classList.add('hidden');
+}
+
+// 소환 실행 — "예" 클릭 시 호출
+function executeSummon() {
+  hideSummonConfirm();
+  const { player } = state;
+  const myStep = player.stepIndex;
+
+  // 나보다 아래 있는 플레이어 목록 (온라인 + 더미 통합)
+  const candidates = [
+    ...Object.entries(state.online.otherPlayers)
+      .filter(([, op]) => op.step < myStep)
+      .map(([uid, op]) => ({ uid, name: op.name, isDummy: false })),
+    ...state.dummyPlayers
+      .filter(d => Math.floor(d.stepPos) < myStep)
+      .map(d => ({ uid: d.id, name: d.name, isDummy: true })),
+  ];
+
+  if (candidates.length === 0) {
+    // showSummonConfirm에서 걸렀지만, 확인창 뜨는 사이 순위가 바뀐 경우 대비
+    player.noticeAt  = Date.now();
+    player.noticeMsg = '소환할 대상이 없습니다. 카드를 새로 뽑습니다.';
+    setTimeout(() => showCardOverlay(3), 2200);
+    return;
+  }
+
+  // 랜덤 1명 선택
+  const target = candidates[Math.floor(Math.random() * candidates.length)];
+
+  if (target.isDummy) {
+    // 더미 플레이어: 로컬에서 직접 이동
+    const d = state.dummyPlayers.find(d => d.id === target.uid);
+    if (d) d.stepPos = myStep;
+    console.log(`[소환술] 더미 "${target.name}" 소환 → 계단 ${myStep}`);
+  } else {
+    // 실제 플레이어: Firebase summons 노드에 push → 상대가 수신 후 처리
+    if (db) {
+      db.ref(`stairway/sessions/${state.online.pin}/summons`).push({
+        casterName: state.online.playerName,
+        targetUid : target.uid,
+        targetStep: myStep,
+        t         : Date.now(),
+      });
+    }
+    console.log(`[소환술] "${target.name}" (uid:${target.uid}) 소환 → 계단 ${myStep}`);
+  }
+
+  // 시전자 화면: 차원의 문 연출 + 성공 메시지
+  player.summonPortal = {
+    startAt   : Date.now(),
+    targetName: target.name,
+    worldX    : state.steps[myStep].x,
+    worldY    : state.steps[myStep].y,
+  };
+  player.noticeAt  = Date.now();
+  player.noticeMsg = `${target.name}님을 소환하는데 성공했습니다.`;
+
+  // 소환 성공 후 2초간 시전자 채찍 게이지 정지 (소환 직후 분위기 유지)
+  player.summonCasterFreezeUntil = Date.now() + CFG.SUMMON_FREEZE_MS;
+
+  // 성공 메시지를 읽을 시간 확보 후 카드 표시 (noticeMsg 지속 2000ms + 여유 200ms)
+  setTimeout(() => showCardOverlay(3), 2200);
+}
+
+// 소환당한 플레이어 측 — 모든 진행 중 효과를 강제 종료 후 목적지로 이동
+function applyIncomingSummon(casterName, targetStep) {
+  const { player } = state;
+
+  // 1. phase 초기화 (비행·추락·표류·부활 모두 취소)
+  player.phase = 'normal';
+
+  // 2. 아이템 효과 전체 취소
+  //    activeItem=null + phase=normal 이중 차단 → 천사의 날개 자동 낙하산 예약도 동시에 취소
+  player.activeItem = null;
+
+  // 3. 자율주행 예약 취소
+  player.autoInputAt = 0;
+
+  // 4. 천사의 날개·닭날개 비행 상태 초기화
+  player.flyingX = player.flyingStartY = player.flyingStartAt = player.flyingBaseStepIdx = 0;
+
+  // 5. 낙하산 상태 초기화
+  player.parachuteDeployed = false;
+
+  // 6. 추락 상태 초기화
+  player.fallFromY         = 0;
+  player.fallFromStepIndex = -1;
+  player.fallLockEndsAt    = 0;
+
+  // 7. 표류 상태 초기화
+  player.driftX = player.driftY = player.driftStartAt = player.driftEndsAt = 0;
+
+  // 8. 엘리베이터 상승 취소
+  player.elevating = null;
+
+  // 9. 부활 연출 취소
+  player.reviveEndsAt = 0;
+
+  // 10. 저주 전체 취소 (소환이 저주보다 우선)
+  state.curse.active          = null;
+  state.curse.confirmActive   = false;
+  state.curse.confirmItem     = '';
+  state.curse.confirmEndsAt   = 0;
+  state.curse.countdownActive = false;
+  state.curse.countdownItem   = '';
+  state.curse.countdownUntil  = 0;
+  state.curse.queue           = [];
+  document.getElementById('curseConfirmOverlay').classList.add('hidden');
+
+  // 11. 카드 오버레이가 열려 있으면 닫기 (선택 취소)
+  if (state.cardOverlay.active) {
+    document.getElementById('cardOverlay').classList.add('hidden');
+    state.cardOverlay.active = false;
+  }
+
+  // 12. 친구따라강남 오버레이 닫기
+  if (state.friendFollow.active) hideFriendFollowOverlay();
+
+  // 13. 소환술 확인창 닫기 (소환당하는 중에 확인창이 열려있을 수도 있음)
+  if (state.summon.confirmActive) hideSummonConfirm();
+
+  // 14. 채찍 게이지 틱 리셋 (소환 직후 즉시 게이지 차지 않도록)
+  player.whipTickAt = 0;
+
+  // 목적지 이동 + 조작 차단 + 메시지
+  player.stepIndex     = Math.max(0, Math.min(targetStep, state.steps.length - 1));
+  player.summonedUntil = Date.now() + CFG.SUMMON_FREEZE_MS;
+  player.summonedBy    = casterName;
+  player.noticeAt      = Date.now();
+  player.noticeMsg     = `${casterName}님이 소환하였습니다.`;
+
+  // 퀴즈 오버레이 위에도 보이는 HTML 알림 (z-index 500, 2초 후 자동 숨김)
+  const summonHtmlNotice = document.getElementById('summonReceivedNotice');
+  if (summonHtmlNotice) {
+    document.getElementById('summonReceivedName').textContent = casterName;
+    summonHtmlNotice.classList.remove('hidden');
+    setTimeout(() => summonHtmlNotice.classList.add('hidden'), 2000);
+  }
+
+  console.log(`[소환술] "${casterName}"에게 소환됨 → 계단 ${targetStep}`);
+}
+
+// Firebase: 내게 온 소환 이벤트 감시
+function listenSummons(pin) {
+  const ref = db.ref(`stairway/sessions/${pin}/summons`);
+  ref.off(); // 재접속 시 이전 리스너 제거 — 중복 발동 방지
+  const joinedAt = state.online.joinedAt;
+  ref.on('child_added', snap => {
+    const data = snap.val();
+    if (!data || data.t < joinedAt) return;               // 접속 전 이벤트 무시
+    if (data.targetUid !== state.online.playerId) return; // 내게 온 소환이 아니면 무시
+    applyIncomingSummon(data.casterName, data.targetStep);
+  });
 }
 
 // 현재 보유한 아이템이 활성 상태인지 확인 (충전식: 잔여 횟수 > 0, 시간제: 만료 전)
@@ -1145,6 +1343,7 @@ async function doJoin(name, pin, isHost, preferredCharIndex = null) {
   listenGameState(pin);
   listenCurses(pin);
   listenMercy(pin);
+  listenSummons(pin);
   listenIncomingItems(pin, uid);
 
   if (isHost) {
@@ -1443,6 +1642,11 @@ async function adminEndGame() {
   // 게임 종료 신호 (모든 클라이언트가 종료 감지)
   db.ref(`${base}/gameActive`).set(false);
 
+  // 이벤트 채널 즉시 정리 — 종료 후 5초 간 늦게 오는 이벤트 방지
+  db.ref(`${base}/curses`).remove();
+  db.ref(`${base}/mercy`).remove();
+  db.ref(`${base}/summons`).remove();
+
   // 5초 후 세션 전체 삭제 — 클라이언트가 순위를 읽을 시간 확보 후 정리
   setTimeout(() => {
     db.ref(base).remove();
@@ -1614,6 +1818,7 @@ const TUTORIAL_SLIDES = [
         <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="나보다 위에 있는 플레이어 중 한 명이 랜덤으로 선택되어 그 위치의 계단으로 순간이동합니다.">🤝<span>친구따라강남</span></div>
         <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="10초간 맵을 자동으로 분석해 올바른 키를 자동으로 입력합니다. 점프 칸도 자동으로 통과해요!">🚗<span>자율주행</span></div>
         <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="10초간 계단·낙하 판정 없이 허공을 떠오릅니다! 초당 0.7m 속도로 상승하며, A/D 키로 좌우 착지 위치를 조절하세요. 효과가 끝나면 낙하산이 자동으로 발동돼 천천히 착지합니다.">👼<span>천사의 날개</span></div>
+        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="나보다 낮은 순위의 플레이어 중 랜덤 1명을 내 위치로 강제 소환합니다! 소환 즉시 상대의 모든 진행 중 효과가 취소됩니다. 소환 성공 시 나는 아이템 카드를 새로 뽑습니다. 나보다 아래 플레이어가 없으면 소환 없이 카드만 뽑습니다.">🌀<span>소환술</span></div>
       </div>
       <div class="tutItemDetail" id="tutItemDetail">👆 아이템을 클릭해 설명을 확인하세요.</div>
     `,
@@ -2150,6 +2355,11 @@ const state = {
     flyingStartY     : 0,   // 비행 시작 시점의 발바닥 world-y
     flyingStartAt    : 0,   // 비행 시작 시각
     flyingBaseStepIdx: 0,   // 비행 시작 시점 계단 인덱스 (높이 표시용 하한)
+    // ── 소환술 ───────────────────────────────────
+    summonedUntil          : 0,    // 소환당한 뒤 조작 차단 종료 시각 (0 = 비활성)
+    summonedBy             : '',   // 소환한 플레이어 이름 (메시지 표시용)
+    summonPortal           : null, // 차원의 문 연출 상태: null | { startAt, targetName, worldX, worldY }
+    summonCasterFreezeUntil: 0,    // 소환 성공 후 시전자 채찍 게이지 일시 정지 만료 시각
   },
   camera: { x: 0, y: 0 },
   cardOverlay : { active: false }, // 카드 선택 오버레이 활성 여부
@@ -2171,6 +2381,10 @@ const state = {
     lastWriteAt : 0,         // 마지막 Firebase write 시각
   },
   friendFollow: { active: false, targetStep: null }, // 친구따라강남 오버레이 활성 여부 + 선택된 대상 step
+  summon: {
+    confirmActive: false, // 소환술 확인 창 활성
+    confirmEndsAt: 0,     // 확인 창 자동 취소 만료 시각
+  },
   curse: {
     confirmActive  : false,  // "저주를 거시겠습니까?" 확인 창 활성
     confirmItem    : '',     // 확인 중인 저주 아이템 id
@@ -2264,6 +2478,8 @@ function handleInput(code) {
   if (player.phase === 'reviving') return;
   if (player.elevating) return;
   if (state.friendFollow.active) return;
+  if (state.summon.confirmActive) return;        // 소환 확인 창이 열려있는 동안 입력 차단
+  if (player.summonedUntil > Date.now()) return; // 소환당한 직후 잠시 차단
 
   // 게임오버: 아무 입력이나 재시작
   if (player.phase === 'gameover') {
@@ -2290,6 +2506,10 @@ function handleInput(code) {
     player.flyingBaseStepIdx  = 0;
     state.fireworks           = [];
     state.friendFollow.active = false;
+    state.summon.confirmActive      = false;
+    player.summonedUntil            = 0;
+    player.summonPortal             = null;
+    player.summonCasterFreezeUntil  = 0;
     // 관리자 시작 높이 설정 적용
     const startIdx = Math.min(Math.round(state.admin.startHeight * CFG.STEPS_PER_M), state.steps.length - 1);
     player.startStepIndex = startIdx;
@@ -2948,6 +3168,94 @@ function render() {
     }
   }
 
+  // --- 소환당한 뒤 도착 연출 (보라색 빛 링 + 메시지) ---
+  if (player.summonedUntil > 0) {
+    const rem  = player.summonedUntil - Date.now();
+    if (rem > 0) {
+      const t        = 1 - rem / CFG.SUMMON_FREEZE_MS; // 0 → 1
+      const ringR    = 30 + t * 90;                     // 링이 퍼지며 확산
+      const alpha    = (1 - t) * 0.85;
+      const px       = toSx(getPlayerWorldX());
+      const py       = toSy(getPlayerWorldY()) - PH / 2;
+      const grad     = ctx.createRadialGradient(px, py, 0, px, py, ringR);
+      grad.addColorStop(0,   `rgba(180, 100, 255, ${alpha})`);
+      grad.addColorStop(0.6, `rgba(100, 60,  220, ${alpha * 0.4})`);
+      grad.addColorStop(1,   'rgba(80, 40, 200, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(px, py, ringR, 0, Math.PI * 2);
+      ctx.fill();
+      // "ㅇㅇ님이 소환하였습니다." 큰 텍스트
+      ctx.save();
+      ctx.globalAlpha  = Math.min(1, (1 - t) * 3); // 앞부분에만 선명
+      ctx.font         = 'bold 26px sans-serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle    = 'rgba(0,0,0,0.5)';
+      ctx.fillText(`🌀 ${player.summonedBy}님이 소환하였습니다.`, W / 2 + 2, H / 2 - 38);
+      ctx.fillStyle    = '#cc88ff';
+      ctx.fillText(`🌀 ${player.summonedBy}님이 소환하였습니다.`, W / 2, H / 2 - 40);
+      ctx.restore();
+    }
+  }
+
+  // --- 차원의 문 연출 (소환술 시전자 화면) ---
+  if (player.summonPortal) {
+    const elapsed  = Date.now() - player.summonPortal.startAt;
+    const t        = Math.min(elapsed / CFG.SUMMON_PORTAL_MS, 1); // 0 → 1
+    const portalPx = toSx(player.summonPortal.worldX);
+    const portalPy = toSy(player.summonPortal.worldY) - PH * 4; // 캐릭터 위 4칸 높이
+
+    // 포탈 크기: 나타났다가 사라지는 곡선 (sin 커브)
+    const portalScale = Math.sin(t * Math.PI);
+    const portalR     = 28 * portalScale;
+    const angle       = elapsed / 400; // 회전 각도
+
+    ctx.save();
+    ctx.translate(portalPx, portalPy);
+
+    // 바깥 글로우
+    const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, portalR + 18);
+    glow.addColorStop(0,   `rgba(180, 80, 255, ${0.5 * portalScale})`);
+    glow.addColorStop(0.5, `rgba(100, 40, 200, ${0.3 * portalScale})`);
+    glow.addColorStop(1,   'rgba(60, 20, 180, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, portalR + 18, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 포탈 타원 (회전)
+    ctx.rotate(angle);
+    ctx.strokeStyle = `rgba(220, 140, 255, ${0.9 * portalScale})`;
+    ctx.lineWidth   = 3;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, portalR, portalR * 0.45, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(255, 200, 255, ${0.5 * portalScale})`;
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, portalR * 0.7, portalR * 0.3, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 포탈에서 낙하하는 작은 캐릭터 (t 0.2~0.9 구간)
+    if (t > 0.15 && t < 0.92) {
+      const dropT   = (t - 0.15) / 0.77; // 0 → 1
+      const dropY   = dropT * dropT * PH * 4.5; // 중력 가속
+      ctx.rotate(-angle); // 포탈 회전 해제 후 캐릭터 그리기
+      ctx.globalAlpha = Math.min(1, (1 - dropT) * 2) * portalScale;
+      ctx.fillStyle   = '#cc88ff';
+      ctx.fillRect(-7, dropY - 7, 14, 14);
+      ctx.fillStyle   = '#fff';
+      ctx.font        = '8px sans-serif';
+      ctx.textAlign   = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('😨', 0, dropY);
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
+  }
+
   // --- 범용 알림 메시지 (2초, 노란색) ---
   if (player.noticeAt > 0) {
     const elapsed = Date.now() - player.noticeAt;
@@ -3282,6 +3590,23 @@ function loop() {
     if (now >= state.curse.confirmEndsAt) cancelCurse(); // 시간 초과 → 자비
   }
 
+  // 소환 확인 창 타임아웃 및 타이머 표시
+  if (state.summon.confirmActive) {
+    const remSummon  = Math.max(state.summon.confirmEndsAt - now, 0);
+    const timerSumEl = document.getElementById('summonConfirmTimer');
+    if (timerSumEl) timerSumEl.textContent = Math.ceil(remSummon / 1000);
+    if (now >= state.summon.confirmEndsAt) {
+      hideSummonConfirm();
+      state.player.noticeAt  = now;
+      state.player.noticeMsg = '소환 확인 시간이 초과되었습니다.';
+    }
+  }
+
+  // 차원의 문 연출 만료 정리
+  if (player.summonPortal && now - player.summonPortal.startAt > CFG.SUMMON_PORTAL_MS) {
+    player.summonPortal = null;
+  }
+
   // 카운트다운 종료 → 효과 발동 (Firebase 전파는 commitCurse에서 이미 완료)
   if (state.curse.countdownActive && now >= state.curse.countdownUntil) {
     if (state.curse.countdownIsCaster) {
@@ -3315,7 +3640,7 @@ function loop() {
   }
 
   // 퀴즈 타이머: normal 상태이고 각종 오버레이·이동·테스트 모드가 아닐 때만 발동
-  if (!state.quiz.active && !state.friendFollow.active && !state.admin.testMode &&
+  if (!state.quiz.active && !state.friendFollow.active && !state.summon.confirmActive && !state.admin.testMode &&
       state.quiz.questions.length > 0 && state.quiz.freezeUntil === 0 &&
       state.quiz.nextAt > 0 && player.phase === 'normal' &&
       !player.elevating && now >= state.quiz.nextAt) {
@@ -3326,7 +3651,8 @@ function loop() {
   const isBreathing = player.activeItem?.id === '숨고르기' && isItemActive();
   if (player.phase === 'normal' && !player.elevating && !state.friendFollow.active &&
       !state.quiz.active && !state.cardOverlay.active && state.quiz.freezeUntil === 0 && !state.admin.testMode && !isBreathing &&
-      !state.curse.confirmActive) {
+      !state.curse.confirmActive && !state.summon.confirmActive &&
+      !(player.summonCasterFreezeUntil > now) && !(player.summonedUntil > now)) {
     // 최초 초기화 (게임 시작 또는 재시작 직후)
     if (player.whipTickAt === 0) player.whipTickAt = now + getWhipInterval();
 
@@ -3881,6 +4207,16 @@ document.getElementById('friendFollowInput').addEventListener('keydown', (e) => 
 
 document.getElementById('curseConfirmYes').addEventListener('click', commitCurse);
 document.getElementById('curseConfirmNo').addEventListener('click', cancelCurse);
+
+// =============================================
+// 소환술 확인 창 이벤트
+// =============================================
+
+document.getElementById('summonConfirmYes').addEventListener('click', executeSummon);
+document.getElementById('summonConfirmNo').addEventListener('click', () => {
+  hideSummonConfirm();
+  // 아이템은 소비됨 (확인창이 뜬 시점에 이미 useItem 통해 핸들러 실행됨)
+});
 
 // =============================================
 // 관리자 패널 초기화 및 토글

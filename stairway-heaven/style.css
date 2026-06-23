@@ -769,6 +769,87 @@ html, body {
 #curseConfirmNo:hover { background: rgba(255,255,255,0.16); }
 
 /* =============================================
+   소환 수신 알림 (퀴즈/모든 오버레이 위)
+   ============================================= */
+#summonReceivedNotice {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 500;          /* 퀴즈(100)·저주확인(110)·카드(300) 오버레이 위 */
+  background: rgba(80, 20, 160, 0.92);
+  color: #e8bbff;
+  font-size: 20px;
+  font-weight: bold;
+  font-family: sans-serif;
+  padding: 12px 28px;
+  border-radius: 40px;
+  border: 2px solid rgba(180, 100, 255, 0.7);
+  white-space: nowrap;
+  pointer-events: none;  /* 퀴즈 버튼 클릭 방해 안 함 */
+  box-shadow: 0 0 24px rgba(160, 80, 255, 0.5);
+}
+
+/* =============================================
+   소환술 확인 오버레이
+   ============================================= */
+#summonConfirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 110;
+}
+#summonConfirmPanel {
+  background: #0d0a1f;
+  border: 2px solid rgba(140, 80, 255, 0.6);
+  border-radius: 16px;
+  padding: 30px 34px;
+  max-width: 320px;
+  font-family: sans-serif;
+  text-align: center;
+}
+#summonConfirmTitle {
+  font-size: 16px;
+  color: rgba(255,255,255,0.6);
+  margin-bottom: 10px;
+}
+#summonConfirmBody {
+  font-size: 15px;
+  font-weight: bold;
+  color: #cc88ff;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+#summonConfirmTimer {
+  font-size: 48px;
+  font-weight: bold;
+  color: #a060ff;
+  line-height: 1;
+  margin-bottom: 20px;
+  font-variant-numeric: tabular-nums;
+}
+#summonConfirmBtns { display: flex; gap: 10px; }
+#summonConfirmYes {
+  flex: 1; padding: 11px;
+  background: #7a30e0; color: #fff;
+  border: none; border-radius: 10px;
+  font-size: 15px; font-weight: bold; cursor: pointer;
+  transition: background 0.15s;
+}
+#summonConfirmYes:hover { background: #6020c0; }
+#summonConfirmNo {
+  flex: 1; padding: 11px;
+  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7);
+  border: none; border-radius: 10px;
+  font-size: 15px; cursor: pointer;
+  transition: background 0.15s;
+}
+#summonConfirmNo:hover { background: rgba(255,255,255,0.16); }
+
+/* =============================================
    친구따라강남 오버레이
    ============================================= */
 #friendFollowOverlay {
