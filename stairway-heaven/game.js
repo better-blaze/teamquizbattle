@@ -1379,21 +1379,30 @@ function listenPlayers(pin) {
       if (!state.online.otherPlayers[uid]) {
         state.online.otherPlayers[uid] = {
           name       : pd.name,
-          step       : pd.step || 0,
-          x          : pd.x   || 0,
           isFalling  : pd.isFalling || false,
-          displayStep: pd.step || 0,  // 보간용 — 목표값으로 즉시 초기화
-          displayX   : pd.x   || 0,
           color      : assignPlayerColor(uid),
           charIndex  : pd.charIndex ?? 0,
+          // 스냅샷 보간용 — 첫 수신 시 즉시 배치
+          fromStep   : pd.step || 0,
+          fromX      : pd.x   || 0,
+          toStep     : pd.step || 0,
+          toX        : pd.x   || 0,
+          syncAt     : 0,           // 0 = 아직 이동 없음, displayStep/X는 toStep/X 그대로
+          displayStep: pd.step || 0,
+          displayX   : pd.x   || 0,
         };
       } else {
         const op = state.online.otherPlayers[uid];
         op.name      = pd.name;
-        op.step      = pd.step || 0;
-        op.x         = pd.x   || 0;
         op.isFalling = pd.isFalling || false;
-        // displayStep/displayX는 loop에서 보간
+        // 새 위치가 실제로 달라졌을 때만 보간 구간 갱신
+        if (op.toStep !== (pd.step || 0) || op.toX !== (pd.x || 0)) {
+          op.fromStep = op.displayStep; // 현재 시각적 위치에서 출발
+          op.fromX    = op.displayX;
+          op.toStep   = pd.step || 0;
+          op.toX      = pd.x   || 0;
+          op.syncAt   = Date.now();
+        }
       }
     }
 
@@ -2801,11 +2810,15 @@ function render() {
 
   // --- 온라인 다른 플레이어 (먼저 그려서 내 캐릭터 아래에 위치) ---
   for (const op of Object.values(state.online.otherPlayers)) {
-    const dIdx = Math.round(op.displayStep);
-    if (dIdx < 0 || dIdx >= steps.length) continue;
-    const step = steps[dIdx];
-    const dsx  = toSx(op.displayX ?? step.x);
-    const dsy  = toSy(step.y - CFG.STEP_TOP) - PH;
+    // displayStep 연속값으로 Y 선형보간 — Math.round 대신 floor+frac 사용해 60px 스냅 제거
+    const floorIdx = Math.floor(op.displayStep);
+    if (floorIdx < 0 || floorIdx >= steps.length) continue;
+    const frac    = op.displayStep - floorIdx;
+    const stepA   = steps[floorIdx];
+    const stepB   = steps[Math.min(floorIdx + 1, steps.length - 1)];
+    const interpY = stepA.y + (stepB.y - stepA.y) * frac; // 연속 Y 보간
+    const dsx     = toSx(op.displayX ?? stepA.x);
+    const dsy     = toSy(interpY - CFG.STEP_TOP) - PH;
     if (dsy < -60 || dsy > H + 60) continue;
     drawCharacter(ctx, dsx, dsy, op.charIndex ?? 0, op.color);
     drawNameRight(dsx, dsy, op.name, op.color);
@@ -3682,10 +3695,15 @@ function loop() {
     player.autoInputAt = 0; // 자율주행 비활성/만료 시 타이머 초기화
   }
 
-  // 온라인: 다른 플레이어 위치 보간 — 수신된 step/x 목표값으로 스르륵 이동
+  // 온라인: 다른 플레이어 스냅샷 보간 — syncAt 기준 450ms 동안 from→to 이동
+  // 프레임레이트 독립적이며 매 업데이트 구간을 부드럽게 커버함
+  const INTERP_MS = 450; // 전송 주기(400ms)보다 약간 길게 → 끝에서 홱 달라붙지 않음
   for (const op of Object.values(state.online.otherPlayers)) {
-    op.displayStep += (op.step - op.displayStep) * 0.12;
-    op.displayX    += (op.x   - op.displayX)    * 0.12;
+    if (op.syncAt === 0) continue; // 아직 이동 없음 — 초기 위치 그대로
+    const t     = Math.min((now - op.syncAt) / INTERP_MS, 1);
+    const ease  = easeOutCubic(t);
+    op.displayStep = op.fromStep + (op.toStep - op.fromStep) * ease;
+    op.displayX    = op.fromX    + (op.toX    - op.fromX)    * ease;
   }
 
   // 온라인: 내 위치 Firebase에 throttle 쓰기 (400ms마다)
@@ -4072,6 +4090,10 @@ function finishQuiz() {
   const { quiz } = state;
   quiz.active = false;
   document.getElementById('quizOverlay').classList.add('hidden');
+
+  // 문제풀이 완료 후 채찍 게이지 초기화 + 틱 리셋 (퀴즈 보상으로 깨끗한 상태에서 재개)
+  state.player.whipGauge  = 0;
+  state.player.whipTickAt = 0;
 
   const now     = Date.now();
   const correct = quiz.correctCount;
