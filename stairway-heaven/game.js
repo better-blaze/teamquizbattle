@@ -1529,6 +1529,11 @@ function updateAdminPlayerList() {
   `).join('');
 }
 
+// 플레이어 체크박스 전체 선택 / 전체 해제
+function adminCheckAllPlayers(checked) {
+  document.querySelectorAll('.adminPlayerCheck').forEach(cb => { cb.checked = checked; });
+}
+
 // 선택된 플레이어에게 아이템을 Firebase로 전송
 async function adminSendItemToPlayers() {
   const msgEl   = document.getElementById('adminSendItemMsg');

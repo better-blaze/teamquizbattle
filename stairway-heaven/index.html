@@ -312,6 +312,10 @@
     <div class="adminGroup">
       <div class="adminCollapsibleHeader" onclick="toggleAdminSection('adminPlayerTargetSection', this)">▸ 플레이어 아이템 적용</div>
       <div id="adminPlayerTargetSection" class="hidden">
+        <div style="display:flex;gap:4px;margin-bottom:4px;">
+          <button onclick="adminCheckAllPlayers(true)"  style="flex:1;font-size:11px;padding:2px 4px;">전체 선택</button>
+          <button onclick="adminCheckAllPlayers(false)" style="flex:1;font-size:11px;padding:2px 4px;">전체 해제</button>
+        </div>
         <div id="adminPlayerList" style="margin:4px 0;"></div>
         <select id="adminTargetItemSelect" style="margin-top:4px;"></select>
         <div id="adminSendItemMsg" style="font-size:11px;min-height:14px;margin:3px 0;"></div>
