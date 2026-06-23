@@ -2766,12 +2766,16 @@ function render() {
     ctx.fillStyle = sideColor;
     ctx.fillRect(sx - SW / 2, sy, SW, SS);
 
-    // 레이블: 이 계단에서 눌러야 할 방향
+    // 레이블: 이 계단에서 눌러야 할 방향 (검은 테두리 + 흰 글씨로 가독성 향상)
     const label = isGoal ? 'GOAL' : DIR_LABELS[map[i]];
-    ctx.font         = isCurrent ? 'bold 15px sans-serif' : 'bold 13px sans-serif';
+    ctx.font         = isCurrent ? 'bold 21px sans-serif' : 'bold 16px sans-serif';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle    = isCurrent ? '#fff' : 'rgba(255,255,255,0.75)';
+    ctx.strokeStyle  = 'rgba(0,0,0,0.9)';
+    ctx.lineWidth    = 3;
+    ctx.lineJoin     = 'round';
+    ctx.strokeText(label, sx, sy - ST / 2);
+    ctx.fillStyle    = isCurrent ? '#fff' : 'rgba(255,255,255,0.92)';
     ctx.fillText(label, sx, sy - ST / 2);
   }
 
@@ -2930,15 +2934,16 @@ function render() {
 
   drawCharacter(ctx, px, topDraw, state.player.charIndex, PLAYER_COLOR[player.phase] || '#ff4757');
 
-  // 내 이름 — 이미지 바로 아래에 배경 박스와 함께 표시
+  // 내 이름 — 캐릭터 위 10px 여유를 두고 표시 (캐릭터를 가리지 않도록)
   if (state.online.playerName) {
-    const nameY = topDraw + PH + 4;
     ctx.font    = 'bold 12px sans-serif';
     const tw    = ctx.measureText(state.online.playerName).width;
     const padX  = 5, padY = 3;
+    const boxH  = 14 + padY * 2;
+    const nameY = topDraw - boxH - 40; // 캐릭터 상단에서 40px 위
     ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
     ctx.beginPath();
-    ctx.roundRect(px - tw / 2 - padX, nameY, tw + padX * 2, 14 + padY * 2, 4);
+    ctx.roundRect(px - tw / 2 - padX, nameY, tw + padX * 2, boxH, 4);
     ctx.fill();
     ctx.fillStyle    = '#fff';
     ctx.textAlign    = 'center';
