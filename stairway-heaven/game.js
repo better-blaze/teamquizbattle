@@ -66,10 +66,16 @@ const CFG = {
   CURSE_CONFIRM_MS  : 5000,  // "저주를 거시겠습니까?" 확인 창 제한 시간 (ms)
   CURSE_COUNTDOWN_S : 3,     // "저주가 시작됩니다." 카운트다운 초 수
   CURSE_MIRROR_MS   : 3000,  // 거울의 저주 지속 시간 (ms)
-  CURSE_DARK_MS     : 6000,  // 암흑의 저주 지속 시간 (ms)
-  CURSE_DARK_PERIOD : 300,   // 암흑의 저주 — 어두운 시간 (ms) ← 나중에 여기서 조정
-  CURSE_LIGHT_PERIOD: 400,   // 암흑의 저주 — 밝은 시간 (ms)
+  CURSE_DARK_MS          : 5000, // 암흑의 저주 총 지속 시간 (ms) — 여기서 조절
+  CURSE_DARK_OPACITY_MIN : 0.91, // 시작·종료 시 검은 막 불투명도 — 여기서 조절
+  CURSE_DARK_OPACITY_MAX : 0.99, // 중간(가장 어두운 순간) 불투명도 — 여기서 조절
+  // 가장 어두워지는 시점 = CURSE_DARK_MS / 2 (자동 계산, 별도 상수 불필요)
   CURSE_MERCY_MS    : 3000,  // "자비를 베푸셨습니다" 메시지 표시 시간 (ms)
+  // ── 천사의 날개 ─────────────────────────────
+  ANGEL_WING_MS       : 10000, // 천사의 날개 지속 시간 (ms)
+  ANGEL_WING_SPEED_MPS: 0.7,   // 천사의 날개 상승 속도 (m/s) — 여기서 조절
+  CHICKEN_WING_MS       : 5000, // 닭날개 지속 시간 (ms)
+  CHICKEN_WING_SPEED_MPS: 0.2,  // 닭날개 상승 속도 (m/s) — 여기서 조절
 };
 
 // false로 바꾸면 디버그 패널 완전히 숨김
@@ -91,6 +97,7 @@ const ITEM_POOL = {
     { id: '엘리베이터',  weight: 1 },
     { id: '친구따라강남', weight: 1 },
     { id: '자율주행',    weight: 1 },
+    { id: '천사의 날개', weight: 1 },
   ],
   일반: [
     { id: '사다리',      weight: 1 },
@@ -99,6 +106,7 @@ const ITEM_POOL = {
     { id: '새치기',      weight: 1 },
     { id: '꽝',          weight: 2 },   // 꽝이 더 자주 나오도록 기본값 2
     { id: '폭죽',        weight: 1 },
+    { id: '닭날개',      weight: 1 },
     { id: '거울의 저주', weight: 0.5 }, // 저주 계열 — 낮은 확률
     { id: '암흑의 저주', weight: 0.5 }, // 저주 계열 — 낮은 확률
   ],
@@ -132,9 +140,7 @@ const GAME_SETTINGS_DEFAULT = {
   // 저주 계열
   curseConfirmMs    : 5000,
   curseMirrorMs     : 3000,
-  curseDarkMs       : 6000,
-  curseDarkPeriod   : 300,
-  curseLightPeriod  : 400,
+  curseDarkMs       : 5000,
   // 아이템 가중치 (item.id를 키로, 값이 높을수록 자주 등장)
   itemWeights: {
     // 고급
@@ -145,6 +151,7 @@ const GAME_SETTINGS_DEFAULT = {
     '엘리베이터'  : 1,
     '친구따라강남': 1,
     '자율주행'    : 1,
+    '천사의 날개' : 1,
     // 일반
     '사다리'      : 1,
     '당근'        : 1,
@@ -152,6 +159,7 @@ const GAME_SETTINGS_DEFAULT = {
     '새치기'      : 1,
     '꽝'          : 2,
     '폭죽'        : 1,
+    '닭날개'      : 1,
     '거울의 저주' : 0.5,
     '암흑의 저주' : 0.5,
   },
@@ -176,8 +184,6 @@ const SETTINGS_CFG_MAP = {
   curseConfirmMs    : 'CURSE_CONFIRM_MS',
   curseMirrorMs     : 'CURSE_MIRROR_MS',
   curseDarkMs       : 'CURSE_DARK_MS',
-  curseDarkPeriod   : 'CURSE_DARK_PERIOD',
-  curseLightPeriod  : 'CURSE_LIGHT_PERIOD',
 };
 
 // 로드한 설정값을 CFG와 ITEM_POOL에 반영
@@ -251,8 +257,6 @@ async function saveSettings(overrides = {}) {
     curseConfirmMs    : CFG.CURSE_CONFIRM_MS,
     curseMirrorMs     : CFG.CURSE_MIRROR_MS,
     curseDarkMs       : CFG.CURSE_DARK_MS,
-    curseDarkPeriod   : CFG.CURSE_DARK_PERIOD,
-    curseLightPeriod  : CFG.CURSE_LIGHT_PERIOD,
     itemWeights       : weights,
     ...overrides,
   };
@@ -410,6 +414,8 @@ const ITEM_HANDLERS = {
   '폭죽'       : () => { activateItem('폭죽', CFG.FIREWORK_MS); },
   '거울의 저주': () => { startCurseConfirm('거울의 저주'); },
   '암흑의 저주': () => { startCurseConfirm('암흑의 저주'); },
+  '천사의 날개': () => { startAngelWings(); },
+  '닭날개'     : () => { startChickenWings(); },
 };
 
 // 아이템 발동 진입점 — 디버그 패널·카드 UI 모두 이 함수 하나를 호출
@@ -420,6 +426,50 @@ function useItem(id) {
   } else {
     console.warn('[아이템] 알 수 없는 아이템:', id);
   }
+}
+
+// 천사의 날개 발동 — normal 상태에서만 가능, 비행 phase로 전환
+function startAngelWings() {
+  const { player, steps } = state;
+  if (player.phase !== 'normal') return; // 비행/추락/게임오버 중엔 사용 불가
+
+  activateItem('천사의 날개', CFG.ANGEL_WING_MS);
+
+  // activateItem 내 confirm 거절 시 activeItem이 설정되지 않으므로 확인
+  if (player.activeItem?.id !== '천사의 날개') return;
+
+  // 현재 발바닥 world-y를 비행 출발점으로 저장
+  player.flyingX          = steps[player.stepIndex].x;
+  player.flyingStartY     = steps[player.stepIndex].y - CFG.STEP_TOP;
+  player.flyingStartAt    = Date.now();
+  player.flyingBaseStepIdx = player.stepIndex;
+  player.phase            = 'flying';
+  console.log(`[천사의 날개] 비행 시작! (${(player.stepIndex / CFG.STEPS_PER_M).toFixed(1)}m)`);
+}
+
+// 닭날개 발동 — normal 상태에서만 가능, 비행 phase로 전환
+function startChickenWings() {
+  const { player, steps } = state;
+  if (player.phase !== 'normal') return;
+
+  activateItem('닭날개', CFG.CHICKEN_WING_MS);
+  if (player.activeItem?.id !== '닭날개') return;
+
+  player.flyingX           = steps[player.stepIndex].x;
+  player.flyingStartY      = steps[player.stepIndex].y - CFG.STEP_TOP;
+  player.flyingStartAt     = Date.now();
+  player.flyingBaseStepIdx = player.stepIndex;
+  player.phase             = 'flying';
+  console.log(`[닭날개] 파닥파닥! (${(player.stepIndex / CFG.STEPS_PER_M).toFixed(1)}m)`);
+}
+
+// 현재 비행 중 발바닥 world-y 계산 (아이템별 속도 반영)
+function getFlyingWorldY() {
+  const item     = state.player.activeItem;
+  const speedMps = item?.id === '닭날개' ? CFG.CHICKEN_WING_SPEED_MPS : CFG.ANGEL_WING_SPEED_MPS;
+  const elapsed  = (Date.now() - state.player.flyingStartAt) / 1000;
+  const speedPx  = speedMps * CFG.STEPS_PER_M * CFG.STEP_GAP;
+  return state.player.flyingStartY - elapsed * speedPx;
 }
 
 // 현재 보유한 아이템이 활성 상태인지 확인 (충전식: 잔여 횟수 > 0, 시간제: 만료 전)
@@ -1544,9 +1594,10 @@ const TUTORIAL_SLIDES = [
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="20초간 채찍 게이지가 1.5배 천천히 찹니다.">🥕<span>당근</span></div>
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="30초간 채찍 게이지가 전혀 차지 않습니다.">💤<span>숨고르기</span></div>
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="20초간 내가 지나가는 계단마다 폭죽 시각 효과가 나타납니다. 기능적 효과 없는 연출용 아이템이에요!">🎆<span>폭죽</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="5초간 허공을 파닥파닥 떠오릅니다! 속도는 초당 0.2m로 느리지만, A/D 키로 착지 위치를 조절할 수 있어요. 효과가 끝나면 낙하산이 자동 발동됩니다.">🐔<span>닭날개</span></div>
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="아무 효과가 없습니다. 운이 없었네요!">😶<span>꽝</span></div>
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="상대 플레이어의 화면이 3초간 좌우반전됩니다. 발동 전 확인 창이 뜨고, 취소하면 모두에게 '자비를 베푸셨습니다' 메시지가 표시돼요.">🪞<span>거울의 저주</span></div>
-        <div class="tutItem" onclick="selectTutItem(this)" data-detail="상대 플레이어의 화면이 6초간 밝고 어둡게 반복해 깜빡입니다. 발동 전 확인 창이 뜨고, 취소하면 모두에게 '자비를 베푸셨습니다' 메시지가 표시돼요.">🌑<span>암흑의 저주</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="상대 플레이어의 화면이 5초간 서서히 어두워졌다가 밝아집니다. 깜빡임 없이 부드럽게 이어져요. 발동 전 확인 창이 뜨고, 취소하면 모두에게 '자비를 베푸셨습니다' 메시지가 표시돼요.">🌑<span>암흑의 저주</span></div>
       </div>
       <div class="tutItemDetail" id="tutItemDetail">👆 아이템을 클릭해 설명을 확인하세요.</div>
     `,
@@ -1562,6 +1613,7 @@ const TUTORIAL_SLIDES = [
         <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="현재 높이보다 5m 위의 안전한 계단으로 순간이동합니다.">🛗<span>엘리베이터</span></div>
         <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="나보다 위에 있는 플레이어 중 한 명이 랜덤으로 선택되어 그 위치의 계단으로 순간이동합니다.">🤝<span>친구따라강남</span></div>
         <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="10초간 맵을 자동으로 분석해 올바른 키를 자동으로 입력합니다. 점프 칸도 자동으로 통과해요!">🚗<span>자율주행</span></div>
+        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="10초간 계단·낙하 판정 없이 허공을 떠오릅니다! 초당 0.7m 속도로 상승하며, A/D 키로 좌우 착지 위치를 조절하세요. 효과가 끝나면 낙하산이 자동으로 발동돼 천천히 착지합니다.">👼<span>천사의 날개</span></div>
       </div>
       <div class="tutItemDetail" id="tutItemDetail">👆 아이템을 클릭해 설명을 확인하세요.</div>
     `,
@@ -2093,6 +2145,11 @@ const state = {
     noticeMsg           : '',   // 범용 알림 메시지 텍스트
     elevating           : null, // 엘리베이터 상승 애니메이션: null | { fromX, fromY, toX, toY, startAt, durationMs }
     autoInputAt         : 0,   // 자율주행 다음 자동 입력 만료 시각 (0 = 비활성)
+    // ── 천사의 날개 ──────────────────────────────
+    flyingX          : 0,   // 비행 중 X world 좌표
+    flyingStartY     : 0,   // 비행 시작 시점의 발바닥 world-y
+    flyingStartAt    : 0,   // 비행 시작 시각
+    flyingBaseStepIdx: 0,   // 비행 시작 시점 계단 인덱스 (높이 표시용 하한)
   },
   camera: { x: 0, y: 0 },
   cardOverlay : { active: false }, // 카드 선택 오버레이 활성 여부
@@ -2158,6 +2215,11 @@ function getPlayerWorldY() {
     return player.elevating.fromY + (player.elevating.toY - player.elevating.fromY) * eased;
   }
 
+  // 천사의 날개 비행 중: 시작 Y에서 경과 시간 × 속도만큼 위로 이동
+  if (player.phase === 'flying') {
+    return getFlyingWorldY();
+  }
+
   if (player.phase === 'normal' || player.phase === 'reviving') {
     return steps[player.stepIndex].y - CFG.STEP_TOP; // 발판 윗면
   }
@@ -2183,6 +2245,7 @@ function getPlayerWorldX() {
     const eased = easeOutCubic(t);
     return player.elevating.fromX + (player.elevating.toX - player.elevating.fromX) * eased;
   }
+  if (player.phase === 'flying') return player.flyingX;
   if (player.phase === 'drifting' || player.phase === 'gameover') return player.driftX;
   return steps[player.stepIndex].x;
 }
@@ -2221,6 +2284,10 @@ function handleInput(code) {
     player.teleportFlashLabel = '';
     player.elevating          = null;
     player.autoInputAt        = 0;
+    player.flyingX            = 0;
+    player.flyingStartY       = 0;
+    player.flyingStartAt      = 0;
+    player.flyingBaseStepIdx  = 0;
     state.fireworks           = [];
     state.friendFollow.active = false;
     // 관리자 시작 높이 설정 적용
@@ -2250,6 +2317,13 @@ function handleInput(code) {
   if (player.phase === 'drifting') {
     if (code === 0) player.driftX -= CFG.UNIT;
     if (code === 1) player.driftX += CFG.UNIT;
+    return;
+  }
+
+  // 천사의 날개 비행 중: a/d로 좌우 착지 위치 조절만 허용
+  if (player.phase === 'flying') {
+    if (code === 0) player.flyingX -= CFG.UNIT;
+    if (code === 1) player.flyingX += CFG.UNIT;
     return;
   }
 
@@ -2522,6 +2596,11 @@ function render() {
   const feetY  = getPlayerWorldY();
   const px     = toSx(worldX);
   const top    = toSy(feetY) - PH;
+  // 닭날개 비행 중: 두 주파수 합성파 → 불규칙한 위아래 떨림 (0이면 그대로)
+  const jitY    = (player.phase === 'flying' && player.activeItem?.id === '닭날개')
+    ? Math.sin(Date.now() / 55) * 5 + Math.sin(Date.now() / 33 + 1.1) * 2.5
+    : 0;
+  const topDraw = top + jitY; // 캐릭터·날개·이름표 렌더에 사용
 
   const isDriftingWithChute = player.phase === 'drifting' && hasParachute();
   const PLAYER_COLOR = {
@@ -2529,12 +2608,98 @@ function render() {
     falling_locked: '#888',
     drifting      : isDriftingWithChute ? '#b06eff' : '#ffb347',
     gameover      : '#666',
+    flying        : '#ffffcc',
   };
-  drawCharacter(ctx, px, top, state.player.charIndex, PLAYER_COLOR[player.phase] || '#ff4757');
+
+  // 천사의 날개 — 캐릭터 뒤에 날개 렌더 (drawCharacter 전에 그려야 캐릭터가 앞에 표시됨)
+  if (player.phase === 'flying' && player.activeItem?.id === '천사의 날개') {
+    const wingPulse  = 0.65 + 0.35 * Math.sin(Date.now() / 280);
+    const glowPulse  = 0.25 + 0.15 * Math.sin(Date.now() / 180);
+    const midY       = topDraw + PH * 0.42;
+
+    ctx.save();
+
+    // 날개 글로우 (부드러운 후광)
+    const gradient = ctx.createRadialGradient(px, midY, 0, px, midY, 55);
+    gradient.addColorStop(0,   `rgba(255, 255, 180, ${glowPulse})`);
+    gradient.addColorStop(0.5, `rgba(255, 240, 100, ${glowPulse * 0.5})`);
+    gradient.addColorStop(1,   'rgba(255, 240, 100, 0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(px - 55, midY - 55, 110, 110);
+
+    // 왼쪽 날개
+    ctx.globalAlpha = wingPulse;
+    ctx.fillStyle   = 'rgba(255, 255, 210, 0.92)';
+    ctx.beginPath();
+    ctx.ellipse(px - 32, midY, 16, 26, -0.45, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 220, 60, 0.7)';
+    ctx.lineWidth   = 1.2;
+    ctx.stroke();
+
+    // 오른쪽 날개
+    ctx.beginPath();
+    ctx.ellipse(px + 32, midY, 16, 26, 0.45, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // 닭날개 — 경박스러운 파닥파닥 날개 (두 주파수 합성파로 불규칙한 파닥임 연출)
+  if (player.phase === 'flying' && player.activeItem?.id === '닭날개') {
+    const t     = Date.now();
+    const t1    = t / 70;                                            // 주파 (~14Hz)
+    const flapL = Math.sin(t1) * 0.85 + Math.sin(t1 * 1.8 + 0.4) * 0.18;  // 좌 합성파
+    const flapR = Math.sin(t1 + 0.55) * 0.85 + Math.sin(t1 * 1.8 + 1.3) * 0.18; // 우 (위상 차이)
+    const jitX  = Math.sin(t / 105) * 2.5;                          // 미세 좌우 흔들림
+    const midY  = topDraw + PH * 0.42;
+
+    ctx.save();
+
+    // 왼쪽 닭날개
+    ctx.save();
+    ctx.translate(px - 18 + jitX, midY);
+    ctx.rotate(-0.35 + flapL * 0.85);
+    ctx.fillStyle   = '#d4852a';
+    ctx.strokeStyle = '#8b4e12';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 9, 19, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // 날개 끝 깃털
+    ctx.fillStyle = '#b06320';
+    ctx.beginPath();
+    ctx.moveTo(-5, -19); ctx.lineTo(-1, -27); ctx.lineTo(3, -19);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+
+    // 오른쪽 닭날개
+    ctx.save();
+    ctx.translate(px + 18 + jitX, midY);
+    ctx.rotate(0.35 + flapR * 0.85);
+    ctx.fillStyle   = '#d4852a';
+    ctx.strokeStyle = '#8b4e12';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 9, 19, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#b06320';
+    ctx.beginPath();
+    ctx.moveTo(-3, -19); ctx.lineTo(1, -27); ctx.lineTo(5, -19);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  drawCharacter(ctx, px, topDraw, state.player.charIndex, PLAYER_COLOR[player.phase] || '#ff4757');
 
   // 내 이름 — 이미지 바로 아래에 배경 박스와 함께 표시
   if (state.online.playerName) {
-    const nameY = top + PH + 4;
+    const nameY = topDraw + PH + 4;
     ctx.font    = 'bold 12px sans-serif';
     const tw    = ctx.measureText(state.online.playerName).width;
     const padX  = 5, padY = 3;
@@ -2561,6 +2726,46 @@ function render() {
     ctx.moveTo(px - 22, chuteY); ctx.lineTo(px - PW / 2, top);
     ctx.moveTo(px + 22, chuteY); ctx.lineTo(px + PW / 2, top);
     ctx.stroke();
+  }
+
+  // 천사의 날개 — 화면 가운데 남은 시간 표시
+  if (player.phase === 'flying' && player.activeItem?.id === '천사의 날개') {
+    const rem  = Math.max(player.activeItem.endsAt - Date.now(), 0);
+    const secs = Math.ceil(rem / 1000);
+    ctx.save();
+    ctx.font         = 'bold 38px sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    // 그림자 (가독성)
+    ctx.fillStyle    = 'rgba(0, 0, 0, 0.55)';
+    ctx.fillText(`✨ 천사의 날개  ${secs}초`, W / 2 + 2, H / 2 + 2);
+    ctx.fillStyle    = '#ffffc0';
+    ctx.fillText(`✨ 천사의 날개  ${secs}초`, W / 2, H / 2);
+    // 안내 문구 (작게)
+    ctx.font      = '16px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 180, 0.7)';
+    ctx.fillText('A / D 키로 착지 위치 조절', W / 2, H / 2 + 46);
+    ctx.restore();
+  }
+
+  // 닭날개 — 화면 가운데 남은 시간 표시 (텍스트가 파닥파닥 흔들림)
+  if (player.phase === 'flying' && player.activeItem?.id === '닭날개') {
+    const rem    = Math.max(player.activeItem.endsAt - Date.now(), 0);
+    const secs   = Math.ceil(rem / 1000);
+    const shakeX = Math.sin(Date.now() / 48) * 4;
+    const shakeY = Math.cos(Date.now() / 65) * 2.5;
+    ctx.save();
+    ctx.font         = 'bold 38px sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = 'rgba(0, 0, 0, 0.55)';
+    ctx.fillText(`🐔 닭날개  ${secs}초`, W / 2 + shakeX + 2, H / 2 + shakeY + 2);
+    ctx.fillStyle    = '#ffcc66';
+    ctx.fillText(`🐔 닭날개  ${secs}초`, W / 2 + shakeX, H / 2 + shakeY);
+    ctx.font      = '16px sans-serif';
+    ctx.fillStyle = 'rgba(255, 204, 102, 0.7)';
+    ctx.fillText('A / D 키로 착지 위치 조절', W / 2, H / 2 + 50);
+    ctx.restore();
   }
 
   // --- 폭죽 파티클 ---
@@ -2901,14 +3106,16 @@ function render() {
 
   // ── 저주 사후 효과 (mirror 해제 후 그려 반전 영향 없음) ───────────
 
-  // 암흑의 저주: CURSE_DARK_PERIOD ms 어둡고 CURSE_LIGHT_PERIOD ms 밝음을 반복
+  // 암흑의 저주: 코사인 곡선으로 불투명도를 부드럽게 변화 (깜빡임 없음)
+  // MIN → MAX (0~절반) → MIN (절반~끝) — 대칭, 연속
   if (state.curse.active?.id === '암흑의 저주') {
     const elapsed = Date.now() - state.curse.active.startAt;
-    const cycle   = CFG.CURSE_DARK_PERIOD + CFG.CURSE_LIGHT_PERIOD;
-    if (elapsed % cycle < CFG.CURSE_DARK_PERIOD) {
-      ctx.fillStyle = 'rgba(0,0,0,0.99)';
-      ctx.fillRect(0, 0, W, H);
-    }
+    const t       = Math.min(elapsed / CFG.CURSE_DARK_MS, 1); // 0 → 1
+    const factor  = (1 - Math.cos(2 * Math.PI * t)) / 2;     // 0 → 1 → 0 (대칭)
+    const alpha   = CFG.CURSE_DARK_OPACITY_MIN
+                  + (CFG.CURSE_DARK_OPACITY_MAX - CFG.CURSE_DARK_OPACITY_MIN) * factor;
+    ctx.fillStyle = `rgba(0,0,0,${alpha.toFixed(3)})`;
+    ctx.fillRect(0, 0, W, H);
   }
 
   // 저주 카운트다운 오버레이 ("저주가 시작됩니다. 3/2/1")
@@ -2959,6 +3166,28 @@ function loop() {
   }
 
   const { player, steps } = state;
+
+  // ── 천사의 날개 ────────────────────────────────────────────────────────────
+  // 만료 처리: 낙하산 자동 발동 후 표류 상태로 전환 (일반 아이템 만료 체크 이전에 처리)
+  if (player.phase === 'flying' && (player.activeItem?.id === '천사의 날개' || player.activeItem?.id === '닭날개') && now >= player.activeItem.endsAt) {
+    const currentFlyingY     = getFlyingWorldY();
+    player.activeItem        = null;       // 날개 아이템 제거
+    player.parachuteDeployed = true;       // 낙하산 조용히 자동 발동
+    player.driftX            = player.flyingX;
+    player.driftY            = currentFlyingY;
+    player.driftStartAt      = now;
+    player.driftEndsAt       = now + CFG.DRIFT_SECONDS * 1000;
+    player.fallFromStepIndex = -1;         // 어떤 계단에도 착지 허용
+    player.phase             = 'drifting';
+    console.log('[천사의 날개] 만료 → 낙하산 자동 발동, 표류 전환');
+  }
+
+  // 비행 중 stepIndex 실시간 갱신 (높이 HUD 표시 + 착지 후 기준점 유지)
+  if (player.phase === 'flying') {
+    const currentFlyingY = getFlyingWorldY();
+    const estIdx = Math.round(-currentFlyingY / CFG.STEP_GAP);
+    player.stepIndex = Math.max(player.flyingBaseStepIdx, Math.min(estIdx, steps.length - 1));
+  }
 
   // falling_locked → drifting 전환
   if (player.phase === 'falling_locked' && now >= player.fallLockEndsAt) {
@@ -3096,7 +3325,8 @@ function loop() {
   // 채찍 게이지: normal 상태이고 각종 오버레이·이동·테스트 모드·숨고르기 아이템이 아닐 때만 누적
   const isBreathing = player.activeItem?.id === '숨고르기' && isItemActive();
   if (player.phase === 'normal' && !player.elevating && !state.friendFollow.active &&
-      !state.quiz.active && !state.cardOverlay.active && state.quiz.freezeUntil === 0 && !state.admin.testMode && !isBreathing) {
+      !state.quiz.active && !state.cardOverlay.active && state.quiz.freezeUntil === 0 && !state.admin.testMode && !isBreathing &&
+      !state.curse.confirmActive) {
     // 최초 초기화 (게임 시작 또는 재시작 직후)
     if (player.whipTickAt === 0) player.whipTickAt = now + getWhipInterval();
 
