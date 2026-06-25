@@ -1767,14 +1767,27 @@ const TUTORIAL_SLIDES = [
   },
   {
     icon: '😱',
-    title: '정답과 오답',
+    title: '추락',
     html: `
-      <div class="tutResultRow">
-        <div class="tutResult ok">✅ 정답<br><small>한 칸 올라가요!</small></div>
-        <div class="tutResult ng">❌ 오답<br><small>추락합니다!</small></div>
+      <p>오답을 입력하거나 채찍 게이지가 가득 차면 <strong>추락</strong>합니다!</p>
+      <div class="tutFallSteps">
+        <div class="tutFallStep">
+          <span class="tutFallNum">1</span>
+          <span>캐릭터가 아래로 떨어지기 시작해요.</span>
+        </div>
+        <div class="tutFallStep">
+          <span class="tutFallNum">2</span>
+          <span><strong>5초</strong> 안에 <strong>A / D 키</strong>로 좌우 이동해 계단에 닿으세요.</span>
+        </div>
+        <div class="tutFallStep">
+          <span class="tutFallNum">3</span>
+          <span>계단에 닿으면 그 자리에서 바로 <strong>재개</strong>!</span>
+        </div>
+        <div class="tutFallStep danger">
+          <span class="tutFallNum">⚠</span>
+          <span>5초 안에 닿지 못하면 <strong>게임오버</strong>!</span>
+        </div>
       </div>
-      <p>추락하면 <strong>5초</strong> 안에 <strong>A, D 키로 이동하여</strong>계단에 닿으면 그 자리에서 재개돼요.</p>
-      <p>5초 안에 닿지 못하면 <strong>게임오버</strong>!</p>
     `,
   },
   {
@@ -1812,7 +1825,7 @@ const TUTORIAL_SLIDES = [
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="20초간 채찍 게이지가 1.5배 천천히 찹니다.">🥕<span>당근</span></div>
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="30초간 채찍 게이지가 전혀 차지 않습니다.">💤<span>숨고르기</span></div>
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="20초간 내가 지나가는 계단마다 폭죽 시각 효과가 나타납니다. 기능적 효과 없는 연출용 아이템이에요!">🎆<span>폭죽</span></div>
-        <div class="tutItem" onclick="selectTutItem(this)" data-detail="5초간 허공을 파닥파닥 떠오릅니다! 속도는 초당 0.2m로 느리지만, A/D 키로 착지 위치를 조절할 수 있어요. 효과가 끝나면 낙하산이 자동 발동됩니다.">🐔<span>닭날개</span></div>
+        <div class="tutItem" onclick="selectTutItem(this)" data-detail="5초간 허공을 파닥파닥 떠오릅니다! A/D 키로 착지 위치를 조절할 수 있어요.">🐔<span>닭날개</span></div>
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="아무 효과가 없습니다. 운이 없었네요!">😶<span>꽝</span></div>
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="상대 플레이어의 화면이 3초간 좌우반전됩니다. 발동 전 확인 창이 뜨고, 취소하면 모두에게 '자비를 베푸셨습니다' 메시지가 표시돼요.">🪞<span>거울의 저주</span></div>
         <div class="tutItem" onclick="selectTutItem(this)" data-detail="상대 플레이어의 화면이 5초간 서서히 어두워졌다가 밝아집니다. 깜빡임 없이 부드럽게 이어져요. 발동 전 확인 창이 뜨고, 취소하면 모두에게 '자비를 베푸셨습니다' 메시지가 표시돼요.">🌑<span>암흑의 저주</span></div>
@@ -1831,8 +1844,8 @@ const TUTORIAL_SLIDES = [
         <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="현재 높이보다 5m 위의 안전한 계단으로 순간이동합니다.">🛗<span>엘리베이터</span></div>
         <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="나보다 위에 있는 플레이어 중 한 명이 랜덤으로 선택되어 그 위치의 계단으로 순간이동합니다.">🤝<span>친구따라강남</span></div>
         <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="10초간 맵을 자동으로 분석해 올바른 키를 자동으로 입력합니다. 점프 칸도 자동으로 통과해요!">🚗<span>자율주행</span></div>
-        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="10초간 계단·낙하 판정 없이 허공을 떠오릅니다! 초당 0.7m 속도로 상승하며, A/D 키로 좌우 착지 위치를 조절하세요. 효과가 끝나면 낙하산이 자동으로 발동돼 천천히 착지합니다.">👼<span>천사의 날개</span></div>
-        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="나보다 낮은 순위의 플레이어 중 랜덤 1명을 내 위치로 강제 소환합니다! 소환 즉시 상대의 모든 진행 중 효과가 취소됩니다. 소환 성공 시 나는 아이템 카드를 새로 뽑습니다. 나보다 아래 플레이어가 없으면 소환 없이 카드만 뽑습니다.">🌀<span>소환술</span></div>
+        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="10초간 허공을 날아오릅니다! A/D 키로 좌우 착지 위치를 조절하세요.">👼<span>천사의 날개</span></div>
+        <div class="tutItem tutItemPremium" onclick="selectTutItem(this)" data-detail="나보다 낮은 순위의 플레이어 중 랜덤 1명을 내 위치로 강제 소환합니다! 나는 아이템 카드를 새로 뽑습니다.">🌀<span>소환술</span></div>
       </div>
       <div class="tutItemDetail" id="tutItemDetail">👆 아이템을 클릭해 설명을 확인하세요.</div>
     `,
